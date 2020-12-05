@@ -1,18 +1,15 @@
 package commands
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"github.com/jfrog/jfrog-client-go/utils/log"
 
 	helpers "github.com/jfrog/jfrog-cli-plugin-template/utils"
 
@@ -20,7 +17,33 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/prom2json"
+
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 )
+
+//Data struct
+type Data struct {
+	Name   string    `json:"name"`
+	Help   string    `json:"help"`
+	Type   string    `json:"type"`
+	Metric []Metrics `json:"metrics"`
+}
+
+//Metrics struct
+type Metrics struct {
+	TimestampMs string       `json:"timestamp_ms"`
+	Value       string       `json:"value"`
+	Labels      LabelsStruct `json:"labels,omitempty"`
+}
+
+//LabelsStruct struct
+type LabelsStruct struct {
+	Start  string `json:"start"`
+	End    string `json:"end"`
+	Status string `json:"status"`
+	Type   string `json:"type"`
+}
 
 func GetGraphCommand() components.Command {
 	return components.Command{
@@ -100,34 +123,56 @@ func GraphCmd(c *components.Context) error {
 	if len(serversIds) == 0 {
 		return errorutils.CheckError(errors.New("no Artifactory servers configured. Use the 'jfrog rt c' command to set the Artifactory server details"))
 	}
-	//fmt.Print(serversIds, serverIdDefault)
 
+	//fmt.Print(serversIds, serverIdDefault)
 	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
 
+	if err := ui.Init(); err != nil {
+		fmt.Printf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	p := widgets.NewParagraph()
+	p.Text = "Hello World!"
+	p.SetRect(0, 0, 25, 5)
+
+	ui.Render(p)
+
+	uiEvents := ui.PollEvents()
+	ticker := time.NewTicker(time.Second).C
+	for {
+		select {
+		case e := <-uiEvents:
+			switch e.ID { // event string/identifier
+			case "q", "<C-c>": // press 'q' or 'C-c' to quit
+				return nil
+			}
+
+		// use Go's built-in tickers for updating and drawing data
+		case <-ticker:
+			drawFunction(config, p)
+		}
+	}
+}
+
+func drawFunction(config *config.ArtifactoryDetails, p *widgets.Paragraph) {
+	data := getMetricsData(config)
+
+	for i := range data {
+		if data[i].Name == "sys_cpu_totaltime_seconds" {
+			p.Text = data[i].Metric[0].Value
+		}
+	}
+	ui.Render(p)
+}
+
+func getMetricsData(config *config.ArtifactoryDetails) []Data {
 	//TODO check if token vs password apikey
 	metrics, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
-	//fmt.Println(string(metrics))
-	// if err := ui.Init(); err != nil {
-	// 	fmt.Printf("failed to initialize termui: %v", err)
-	// }
-	// defer ui.Close()
-
-	// p := widgets.NewParagraph()
-	// p.Text = "Hello World!"
-	// p.SetRect(0, 0, 25, 5)
-
-	// ui.Render(p)
-
-	// for e := range ui.PollEvents() {
-	// 	fmt.Println("test")
-	// 	if e.Type == ui.KeyboardEvent {
-	// 		break
-	// 	}
-	// }
 
 	mfChan := make(chan *dto.MetricFamily, 1024)
 
-	// Missing input means we are reading from an URL.
+	// Missing input means we are reading from an URL. stupid hack because Artifactory is missing a newline return
 	file := string(metrics) + "\n"
 
 	go func() {
@@ -136,66 +181,30 @@ func GraphCmd(c *components.Context) error {
 			os.Exit(1)
 		}
 	}()
-	// go func() {
-	// 	err := prom2json.FetchMetricFamilies(arg, mfChan, nil)
-	// 	if err != nil {
-	// 		fmt.Println(err)
-	// 		os.Exit(1)
-	// 	}
-	// }()
 
+	//TODO: Hella inefficient
 	result := []*prom2json.Family{}
 	for mf := range mfChan {
 		result = append(result, prom2json.NewFamily(mf))
 	}
-	jsonText, err := json.MarshalIndent(result, "", "    ")
 
-	fmt.Println(string(jsonText))
+	//pretty print
+	//jsonText, err := json.MarshalIndent(result, "", "    ")
 
-	if len(c.Arguments) != 1 {
-		return errors.New("Wrong number of arguments. Expected: 1, " + "Received: " + strconv.Itoa(len(c.Arguments)))
-	}
-	var conf = new(GraphConfiguration)
-	conf.addressee = c.Arguments[0]
-	conf.shout = c.GetBoolFlagValue("shout")
-
-	repeat, err := strconv.Atoi(c.GetStringFlagValue("repeat"))
+	jsonText, err := json.Marshal(result)
 	if err != nil {
-		return err
-	}
-	conf.repeat = repeat
-
-	conf.prefix = os.Getenv("Graph_FROG_GREET_PREFIX")
-	if conf.prefix == "" {
-		conf.prefix = "New greeting: "
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
-	log.Output(doGreet2(conf))
-	return nil
-}
-
-func makeTransport(
-	certificate string, key string,
-	skipServerCertCheck bool,
-) (*http.Transport, error) {
-	var transport *http.Transport
-	if certificate != "" && key != "" {
-		cert, err := tls.LoadX509KeyPair(certificate, key)
-		if err != nil {
-			return nil, err
-		}
-		tlsConfig := &tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			InsecureSkipVerify: skipServerCertCheck,
-		}
-		tlsConfig.BuildNameToCertificate()
-		transport = &http.Transport{TLSClientConfig: tlsConfig}
-	} else {
-		transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: skipServerCertCheck},
-		}
+	var metricsData []Data
+	err2 := json.Unmarshal(jsonText, &metricsData)
+	if err2 != nil {
+		fmt.Println(err2)
+		os.Exit(1)
 	}
-	return transport, nil
+
+	return metricsData
 }
 
 func doGreet2(c *GraphConfiguration) string {
