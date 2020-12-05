@@ -7,6 +7,7 @@ import (
 )
 
 func main() {
+	//TODO FLAGS
 	plugins.PluginMain(getApp())
 }
 

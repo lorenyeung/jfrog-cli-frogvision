@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +43,8 @@ type LabelsStruct struct {
 	End    string `json:"end"`
 	Status string `json:"status"`
 	Type   string `json:"type"`
+	Max    string `json:"max"`
+	Pool   string `json:"pool"`
 }
 
 func GetGraphCommand() components.Command {
@@ -132,14 +134,31 @@ func GraphCmd(c *components.Context) error {
 	}
 	defer ui.Close()
 
-	p := widgets.NewParagraph()
-	p.Text = "Hello World!"
-	p.SetRect(0, 0, 25, 5)
+	o := widgets.NewParagraph()
+	o.Title = "Meta statistics"
+	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05")
+	o.SetRect(0, 0, 77, 5)
 
-	ui.Render(p)
+	p := widgets.NewParagraph()
+	p.Title = "Remote Connections"
+	p.Text = "Initializing"
+	p.SetRect(0, 6, 25, 11)
+
+	q := widgets.NewParagraph()
+	q.Title = "CPU Time (seconds)"
+	q.Text = "Initializing"
+	q.SetRect(26, 6, 51, 11)
+
+	r := widgets.NewParagraph()
+	r.Title = "Number of Metrics"
+	r.Text = "Initializing"
+	r.SetRect(52, 6, 77, 11)
+
+	ui.Render(o, p, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second).C
+	offSetCounter := 0
 	for {
 		select {
 		case e := <-uiEvents:
@@ -150,23 +169,36 @@ func GraphCmd(c *components.Context) error {
 
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
-			drawFunction(config, p)
+			offSetCounter = drawFunction(config, o, p, q, r, offSetCounter)
+
 		}
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, p *widgets.Paragraph) {
-	data := getMetricsData(config)
+func drawFunction(config *config.ArtifactoryDetails, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) int {
+	responseTime := time.Now()
+	data, lastUpdate, offset := getMetricsData(config, offSetCounter)
 
 	for i := range data {
-		if data[i].Name == "sys_cpu_totaltime_seconds" {
-			p.Text = data[i].Metric[0].Value
+		//TODO need logic to get more than 1 if there are multiple remote - there is a bug that halts the whole thing
+		if data[i].Name == "jfrt_http_connections_max_total" {
+			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool
 		}
+		if data[i].Name == "sys_cpu_totaltime_seconds" {
+			q.Text = data[i].Metric[0].Value
+		}
+
 	}
-	ui.Render(p)
+	r.Text = strconv.Itoa(len(data))
+	time.Now().Sub(responseTime)
+	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds)\nResponse time: " + time.Now().Sub(responseTime).String()
+
+	ui.Render(o, p, q, r)
+	return offset
 }
 
-func getMetricsData(config *config.ArtifactoryDetails) []Data {
+func getMetricsData(config *config.ArtifactoryDetails, counter int) ([]Data, string, int) {
+	//log.Info("hello")
 	//TODO check if token vs password apikey
 	metrics, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
 
@@ -177,8 +209,9 @@ func getMetricsData(config *config.ArtifactoryDetails) []Data {
 
 	go func() {
 		if err := prom2json.ParseReader(strings.NewReader(file), mfChan); err != nil {
-			fmt.Println("error reading metrics:", err)
-			os.Exit(1)
+			//fmt.Println("error reading metrics:", err)
+			//fmt.Println(file)
+			return
 		}
 	}()
 
@@ -194,17 +227,25 @@ func getMetricsData(config *config.ArtifactoryDetails) []Data {
 	jsonText, err := json.Marshal(result)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		return nil, "", 0
 	}
 
 	var metricsData []Data
 	err2 := json.Unmarshal(jsonText, &metricsData)
 	if err2 != nil {
 		fmt.Println(err2)
-		os.Exit(1)
+		return nil, "", 0
 	}
 
-	return metricsData
+	currentTime := time.Now()
+
+	if len(metricsData) == 0 {
+		counter = counter + 1
+		currentTime = currentTime.Add(time.Second * -1 * time.Duration(counter))
+	} else {
+		counter = 0
+	}
+	return metricsData, currentTime.Format("2006.01.02 15:04:05"), counter
 }
 
 func doGreet2(c *GraphConfiguration) string {

@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -9,9 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
-	"github.com/jfrog/jfrog-client-go/utils/log"
+	log "github.com/sirupsen/logrus"
 )
 
 //TraceData trace data struct
@@ -19,6 +21,28 @@ type TraceData struct {
 	File string
 	Line int
 	Fn   string
+}
+
+func SetLogger(logLevelVar string) {
+	level, err := log.ParseLevel(logLevelVar)
+	if err != nil {
+		level = log.InfoLevel
+	}
+	log.SetLevel(level)
+
+	log.SetReportCaller(true)
+	customFormatter := new(log.TextFormatter)
+	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
+	customFormatter.QuoteEmptyFields = true
+	customFormatter.FullTimestamp = true
+	customFormatter.CallerPrettyfier = func(f *runtime.Frame) (string, string) {
+		repopath := strings.Split(f.File, "/")
+		//function := strings.Replace(f.Function, "go-pkgdl/", "", -1)
+		return fmt.Sprintf("%s\t", f.Function), fmt.Sprintf(" %s:%d\t", repopath[len(repopath)-1], f.Line)
+	}
+
+	log.SetFormatter(customFormatter)
+	fmt.Println("Log level set at ", level)
 }
 
 //Check logger for errors
