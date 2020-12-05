@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ import (
 
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
+
+	logFile "github.com/sirupsen/logrus"
 )
 
 //Data struct
@@ -128,6 +131,12 @@ func GraphCmd(c *components.Context) error {
 
 	//fmt.Print(serversIds, serverIdDefault)
 	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
+
+	ping, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/system/ping", config.User, config.Password, "", nil, 1)
+	if string(ping) != "OK" {
+		logFile.Error("Artifactory is not up")
+		os.Exit(1)
+	}
 
 	if err := ui.Init(); err != nil {
 		fmt.Printf("failed to initialize termui: %v", err)
