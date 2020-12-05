@@ -13,7 +13,7 @@ func main() {
 func getApp() components.App {
 	app := components.App{}
 	app.Name = "frogvision"
-	app.Description = "Easily greet anyone."
+	app.Description = "Easily graph anyone."
 	app.Version = "v0.1.0"
 	app.Commands = getCommands()
 	return app

@@ -11,6 +11,8 @@ import (
 	"github.com/gizak/termui/v3/widgets"
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+
+	helpers "github.com/jfrog/jfrog-cli-plugin-template/utils"
 )
 
 func GetGraphCommand() components.Command {
@@ -70,6 +72,9 @@ type GraphConfiguration struct {
 
 func GraphCmd(c *components.Context) error {
 
+	metrics, _, _ := helpers.GetRestAPI("GET", true, "http://localhost:8081/artifactory/api/v1/metrics", "admin", "password", "", nil, 1)
+
+	fmt.Println(string(metrics))
 	if err := ui.Init(); err != nil {
 		fmt.Printf("failed to initialize termui: %v", err)
 	}
