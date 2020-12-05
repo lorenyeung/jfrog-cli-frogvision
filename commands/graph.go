@@ -7,19 +7,20 @@ import (
 	"strconv"
 	"strings"
 
-	ui "github.com/gizak/termui/v3"
-	"github.com/gizak/termui/v3/widgets"
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 
 	helpers "github.com/jfrog/jfrog-cli-plugin-template/utils"
+
+	"github.com/jfrog/jfrog-cli-core/utils/config"
 )
 
 func GetGraphCommand() components.Command {
 	return components.Command{
-		Name:        "Graph",
-		Description: "Says Graph.",
-		Aliases:     []string{"hi"},
+		Name:        "graph",
+		Description: "Graph.",
+		Aliases:     []string{"g"},
 		Arguments:   getGraphArguments(),
 		Flags:       getGraphFlags(),
 		EnvVars:     getGraphEnvVar(),
@@ -70,28 +71,53 @@ type GraphConfiguration struct {
 	prefix    string
 }
 
+func getServersIdAndDefault() ([]string, string, error) {
+	allConfigs, err := config.GetAllArtifactoryConfigs()
+	if err != nil {
+		return nil, "", err
+	}
+	var defaultVal string
+	var serversId []string
+	for _, v := range allConfigs {
+		if v.IsDefault {
+			defaultVal = v.ServerId
+		}
+		serversId = append(serversId, v.ServerId)
+	}
+	return serversId, defaultVal, nil
+}
+
 func GraphCmd(c *components.Context) error {
 
-	metrics, _, _ := helpers.GetRestAPI("GET", true, "http://localhost:8081/artifactory/api/v1/metrics", "admin", "password", "", nil, 1)
+	//TODO handle custom server id input
+	serversIds, serverIdDefault, _ := getServersIdAndDefault()
+	if len(serversIds) == 0 {
+		return errorutils.CheckError(errors.New("no Artifactory servers configured. Use the 'jfrog rt c' command to set the Artifactory server details"))
+	}
+	//fmt.Print(serversIds, serverIdDefault)
 
+	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
+
+	//TODO check if token vs password apikey
+	metrics, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
 	fmt.Println(string(metrics))
-	if err := ui.Init(); err != nil {
-		fmt.Printf("failed to initialize termui: %v", err)
-	}
-	defer ui.Close()
+	// if err := ui.Init(); err != nil {
+	// 	fmt.Printf("failed to initialize termui: %v", err)
+	// }
+	// defer ui.Close()
 
-	p := widgets.NewParagraph()
-	p.Text = "Hello World!"
-	p.SetRect(0, 0, 25, 5)
+	// p := widgets.NewParagraph()
+	// p.Text = "Hello World!"
+	// p.SetRect(0, 0, 25, 5)
 
-	ui.Render(p)
+	// ui.Render(p)
 
-	for e := range ui.PollEvents() {
-		fmt.Println("test")
-		if e.Type == ui.KeyboardEvent {
-			break
-		}
-	}
+	// for e := range ui.PollEvents() {
+	// 	fmt.Println("test")
+	// 	if e.Type == ui.KeyboardEvent {
+	// 		break
+	// 	}
+	// }
 
 	if len(c.Arguments) != 1 {
 		return errors.New("Wrong number of arguments. Expected: 1, " + "Received: " + strconv.Itoa(len(c.Arguments)))
