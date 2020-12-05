@@ -1,8 +1,11 @@
 package commands
 
 import (
+	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +17,9 @@ import (
 	helpers "github.com/jfrog/jfrog-cli-plugin-template/utils"
 
 	"github.com/jfrog/jfrog-cli-core/utils/config"
+
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/prom2json"
 )
 
 func GetGraphCommand() components.Command {
@@ -100,7 +106,7 @@ func GraphCmd(c *components.Context) error {
 
 	//TODO check if token vs password apikey
 	metrics, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
-	fmt.Println(string(metrics))
+	//fmt.Println(string(metrics))
 	// if err := ui.Init(); err != nil {
 	// 	fmt.Printf("failed to initialize termui: %v", err)
 	// }
@@ -118,6 +124,33 @@ func GraphCmd(c *components.Context) error {
 	// 		break
 	// 	}
 	// }
+
+	mfChan := make(chan *dto.MetricFamily, 1024)
+
+	// Missing input means we are reading from an URL.
+	file := string(metrics) + "\n"
+
+	go func() {
+		if err := prom2json.ParseReader(strings.NewReader(file), mfChan); err != nil {
+			fmt.Println("error reading metrics:", err)
+			os.Exit(1)
+		}
+	}()
+	// go func() {
+	// 	err := prom2json.FetchMetricFamilies(arg, mfChan, nil)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		os.Exit(1)
+	// 	}
+	// }()
+
+	result := []*prom2json.Family{}
+	for mf := range mfChan {
+		result = append(result, prom2json.NewFamily(mf))
+	}
+	jsonText, err := json.MarshalIndent(result, "", "    ")
+
+	fmt.Println(string(jsonText))
 
 	if len(c.Arguments) != 1 {
 		return errors.New("Wrong number of arguments. Expected: 1, " + "Received: " + strconv.Itoa(len(c.Arguments)))
@@ -139,6 +172,30 @@ func GraphCmd(c *components.Context) error {
 
 	log.Output(doGreet2(conf))
 	return nil
+}
+
+func makeTransport(
+	certificate string, key string,
+	skipServerCertCheck bool,
+) (*http.Transport, error) {
+	var transport *http.Transport
+	if certificate != "" && key != "" {
+		cert, err := tls.LoadX509KeyPair(certificate, key)
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig := &tls.Config{
+			Certificates:       []tls.Certificate{cert},
+			InsecureSkipVerify: skipServerCertCheck,
+		}
+		tlsConfig.BuildNameToCertificate()
+		transport = &http.Transport{TLSClientConfig: tlsConfig}
+	} else {
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: skipServerCertCheck},
+		}
+	}
+	return transport, nil
 }
 
 func doGreet2(c *GraphConfiguration) string {
