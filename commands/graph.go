@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -129,13 +129,15 @@ func GraphCmd(c *components.Context) error {
 		return errorutils.CheckError(errors.New("no Artifactory servers configured. Use the 'jfrog rt c' command to set the Artifactory server details"))
 	}
 
+	//TODO handle if user is not admin
+
 	//fmt.Print(serversIds, serverIdDefault)
 	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
 
 	ping, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/system/ping", config.User, config.Password, "", nil, 1)
 	if string(ping) != "OK" {
 		logFile.Error("Artifactory is not up")
-		os.Exit(1)
+		return errors.New("Artifactory is not up")
 	}
 
 	if err := ui.Init(); err != nil {
@@ -163,7 +165,15 @@ func GraphCmd(c *components.Context) error {
 	r.Text = "Initializing"
 	r.SetRect(52, 6, 77, 11)
 
-	ui.Render(o, p, q, r)
+	g2 := widgets.NewGauge()
+	g2.Title = "Current Free Storage"
+	g2.SetRect(0, 12, 50, 15)
+	g2.Percent = 0
+	g2.BarColor = ui.ColorYellow
+	g2.LabelStyle = ui.NewStyle(ui.ColorBlue)
+	g2.BorderStyle.Fg = ui.ColorWhite
+
+	ui.Render(g2, o, p, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second).C
@@ -178,17 +188,26 @@ func GraphCmd(c *components.Context) error {
 
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
-			offSetCounter = drawFunction(config, o, p, q, r, offSetCounter)
+			var err error
+			offSetCounter, err = drawFunction(config, g2, o, p, q, r, offSetCounter)
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
 
 		}
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) int {
+func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) (int, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset := getMetricsData(config, offSetCounter)
 
+	var free, total *big.Float
+	//var freeInt, totalInt int
+	//maybe we can turn this into a hashtable for faster lookup
 	for i := range data {
+
+		var err error
 		//TODO need logic to get more than 1 if there are multiple remote - there is a bug that halts the whole thing
 		if data[i].Name == "jfrt_http_connections_max_total" {
 			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool
@@ -196,14 +215,32 @@ func drawFunction(config *config.ArtifactoryDetails, o *widgets.Paragraph, p *wi
 		if data[i].Name == "sys_cpu_totaltime_seconds" {
 			q.Text = data[i].Metric[0].Value
 		}
+		if data[i].Name == "app_disk_free_bytes" {
+			free, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		}
+		if data[i].Name == "app_disk_total_bytes" {
+			total, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		}
 
 	}
+
+	pctFreeSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(free, total))
+
+	pctFreeSpaceStr := pctFreeSpace.String()
+	pctFreeSplit := strings.Split(pctFreeSpaceStr, ".")
+	g2.Percent, _ = strconv.Atoi(pctFreeSplit[0])
 	r.Text = strconv.Itoa(len(data))
 	time.Now().Sub(responseTime)
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds)\nResponse time: " + time.Now().Sub(responseTime).String()
 
-	ui.Render(o, p, q, r)
-	return offset
+	ui.Render(g2, o, p, q, r)
+	return offset, nil
 }
 
 func getMetricsData(config *config.ArtifactoryDetails, counter int) ([]Data, string, int) {
