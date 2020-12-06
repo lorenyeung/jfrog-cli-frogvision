@@ -2,6 +2,8 @@ package helpers
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,7 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jfrog/jfrog-cli-core/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	log "github.com/sirupsen/logrus"
+
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/prom2json"
+
+	logFile "github.com/sirupsen/logrus"
 )
 
 //TraceData trace data struct
@@ -21,6 +30,138 @@ type TraceData struct {
 	File string
 	Line int
 	Fn   string
+}
+
+//Data struct
+type Data struct {
+	Name   string    `json:"name"`
+	Help   string    `json:"help"`
+	Type   string    `json:"type"`
+	Metric []Metrics `json:"metrics"`
+}
+
+//Metrics struct
+type Metrics struct {
+	TimestampMs string       `json:"timestamp_ms"`
+	Value       string       `json:"value"`
+	Labels      LabelsStruct `json:"labels,omitempty"`
+}
+
+//LabelsStruct struct
+type LabelsStruct struct {
+	Start  string `json:"start"`
+	End    string `json:"end"`
+	Status string `json:"status"`
+	Type   string `json:"type"`
+	Max    string `json:"max"`
+	Pool   string `json:"pool"`
+}
+
+func GetConfig() (*config.ArtifactoryDetails, error) {
+	//TODO handle custom server id input
+	serversIds, serverIdDefault, _ := GetServersIdAndDefault()
+	if len(serversIds) == 0 {
+		return nil, errorutils.CheckError(errors.New("no Artifactory servers configured. Use the 'jfrog rt c' command to set the Artifactory server details"))
+	}
+
+	//TODO handle if user is not admin
+
+	//fmt.Print(serversIds, serverIdDefault)
+	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
+
+	ping, _, _ := GetRestAPI("GET", true, config.Url+"api/system/ping", config.User, config.Password, "", nil, 1)
+	if string(ping) != "OK" {
+		logFile.Error("Artifactory is not up")
+		return nil, errors.New("Artifactory is not up")
+	}
+
+	return config, nil
+}
+
+func GetMetricsDataRaw(config *config.ArtifactoryDetails) []byte {
+	metrics, _, _ := GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
+	return metrics
+}
+
+func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]byte, error) {
+	metrics := GetMetricsDataRaw(config)
+
+	mfChan := make(chan *dto.MetricFamily, 1024)
+
+	// Missing input means we are reading from an URL. stupid hack because Artifactory is missing a newline return
+	file := string(metrics) + "\n"
+
+	go func() {
+		if err := prom2json.ParseReader(strings.NewReader(file), mfChan); err != nil {
+			//fmt.Println("error reading metrics:", err)
+			//fmt.Println(file)
+			return
+		}
+	}()
+
+	//TODO: Hella inefficient
+	result := []*prom2json.Family{}
+	for mf := range mfChan {
+		result = append(result, prom2json.NewFamily(mf))
+	}
+
+	var jsonText []byte
+	var err error
+	//pretty print
+	if prettyPrint {
+		jsonText, err := json.MarshalIndent(result, "", "    ")
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println(string(jsonText))
+		return jsonText, nil
+	}
+	jsonText, err = json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	return jsonText, nil
+}
+
+func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint bool) ([]Data, string, int, error) {
+	//log.Info("hello")
+	//TODO check if token vs password apikey
+	jsonText, err := GetMetricsDataJSON(config, prettyPrint)
+	if err != nil {
+		return nil, "", 0, err
+	}
+
+	var metricsData []Data
+	err2 := json.Unmarshal(jsonText, &metricsData)
+	if err2 != nil {
+		return nil, "", 0, err2
+	}
+
+	currentTime := time.Now()
+
+	if len(metricsData) == 0 {
+		counter = counter + 1
+		currentTime = currentTime.Add(time.Second * -1 * time.Duration(counter))
+	} else {
+		counter = 0
+	}
+	return metricsData, currentTime.Format("2006.01.02 15:04:05"), counter, nil
+}
+
+func GetServersIdAndDefault() ([]string, string, error) {
+	allConfigs, err := config.GetAllArtifactoryConfigs()
+	if err != nil {
+		return nil, "", err
+	}
+	var defaultVal string
+	var serversId []string
+	for _, v := range allConfigs {
+		if v.IsDefault {
+			defaultVal = v.ServerId
+		}
+		serversId = append(serversId, v.ServerId)
+	}
+	return serversId, defaultVal, nil
 }
 
 func SetLogger(logLevelVar string) {

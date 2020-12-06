@@ -1,8 +1,6 @@
 package commands
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -16,39 +14,9 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/utils/config"
 
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/prom2json"
-
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
-
-	logFile "github.com/sirupsen/logrus"
 )
-
-//Data struct
-type Data struct {
-	Name   string    `json:"name"`
-	Help   string    `json:"help"`
-	Type   string    `json:"type"`
-	Metric []Metrics `json:"metrics"`
-}
-
-//Metrics struct
-type Metrics struct {
-	TimestampMs string       `json:"timestamp_ms"`
-	Value       string       `json:"value"`
-	Labels      LabelsStruct `json:"labels,omitempty"`
-}
-
-//LabelsStruct struct
-type LabelsStruct struct {
-	Start  string `json:"start"`
-	End    string `json:"end"`
-	Status string `json:"status"`
-	Type   string `json:"type"`
-	Max    string `json:"max"`
-	Pool   string `json:"pool"`
-}
 
 func GetGraphCommand() components.Command {
 	return components.Command{
@@ -105,43 +73,16 @@ type GraphConfiguration struct {
 	prefix    string
 }
 
-func getServersIdAndDefault() ([]string, string, error) {
-	allConfigs, err := config.GetAllArtifactoryConfigs()
-	if err != nil {
-		return nil, "", err
-	}
-	var defaultVal string
-	var serversId []string
-	for _, v := range allConfigs {
-		if v.IsDefault {
-			defaultVal = v.ServerId
-		}
-		serversId = append(serversId, v.ServerId)
-	}
-	return serversId, defaultVal, nil
-}
-
 func GraphCmd(c *components.Context) error {
 
-	//TODO handle custom server id input
-	serversIds, serverIdDefault, _ := getServersIdAndDefault()
-	if len(serversIds) == 0 {
-		return errorutils.CheckError(errors.New("no Artifactory servers configured. Use the 'jfrog rt c' command to set the Artifactory server details"))
-	}
-
-	//TODO handle if user is not admin
-
-	//fmt.Print(serversIds, serverIdDefault)
-	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
-
-	ping, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/system/ping", config.User, config.Password, "", nil, 1)
-	if string(ping) != "OK" {
-		logFile.Error("Artifactory is not up")
-		return errors.New("Artifactory is not up")
+	config, err := helpers.GetConfig()
+	if err != nil {
+		return err
 	}
 
 	if err := ui.Init(); err != nil {
 		fmt.Printf("failed to initialize termui: %v", err)
+		return err
 	}
 	defer ui.Close()
 
@@ -181,7 +122,7 @@ func GraphCmd(c *components.Context) error {
 	g3.LabelStyle = ui.NewStyle(ui.ColorBlue)
 	g3.BorderStyle.Fg = ui.ColorWhite
 
-	ui.Render(g2, o, p, q, r)
+	ui.Render(g2, g3, o, p, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second).C
@@ -208,7 +149,10 @@ func GraphCmd(c *components.Context) error {
 
 func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) (int, error) {
 	responseTime := time.Now()
-	data, lastUpdate, offset := getMetricsData(config, offSetCounter)
+	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false)
+	if err != nil {
+		return 0, err
+	}
 
 	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float
 	var heapProc string
@@ -260,11 +204,25 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widg
 				return 0, errorutils.CheckError(err)
 			}
 		}
-		// jfrt_artifacts_gc_duration_seconds {end="1595837400008",start="1595837400001",status="COMPLETED",type="TRASH_AND_BINARIES"}
-
 		// jfrt_runtime_heap_freememory_bytes  (float)
 		// jfrt_runtime_heap_maxmemory_bytes
 		// jfrt_runtime_heap_totalmemory_bytes
+
+		// more GC metrics to consider
+		// # TYPE jfrt_artifacts_gc_duration_seconds gauge
+		// jfrt_artifacts_gc_duration_seconds{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 1.057 1607287853275
+		// # HELP jfrt_artifacts_gc_size_cleaned_bytes Total Bytes recovered by Garbage Collection
+		// # UPDATED jfrt_artifacts_gc_size_cleaned_bytes 1607284811440
+		// # TYPE jfrt_artifacts_gc_size_cleaned_bytes gauge
+		// jfrt_artifacts_gc_size_cleaned_bytes{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 5.023346e+07 1607287853275
+		// # HELP jfrt_artifacts_gc_binaries_total Total number of binaries removed by Garbage Collection
+		// # UPDATED jfrt_artifacts_gc_binaries_total 1607284811440
+		// # TYPE jfrt_artifacts_gc_binaries_total counter
+		// jfrt_artifacts_gc_binaries_total{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 21 1607287853275
+		// # HELP jfrt_artifacts_gc_current_size_bytes Total space occupied by binaries after Garbage Collection
+		// # UPDATED jfrt_artifacts_gc_current_size_bytes 1607284811440
+		// # TYPE jfrt_artifacts_gc_current_size_bytes gauge
+		// jfrt_artifacts_gc_current_size_bytes{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 3.823509e+10 1607287853275
 
 	}
 
@@ -293,57 +251,6 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widg
 
 	ui.Render(g2, g3, o, p, q, r)
 	return offset, nil
-}
-
-func getMetricsData(config *config.ArtifactoryDetails, counter int) ([]Data, string, int) {
-	//log.Info("hello")
-	//TODO check if token vs password apikey
-	metrics, _, _ := helpers.GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
-
-	mfChan := make(chan *dto.MetricFamily, 1024)
-
-	// Missing input means we are reading from an URL. stupid hack because Artifactory is missing a newline return
-	file := string(metrics) + "\n"
-
-	go func() {
-		if err := prom2json.ParseReader(strings.NewReader(file), mfChan); err != nil {
-			//fmt.Println("error reading metrics:", err)
-			//fmt.Println(file)
-			return
-		}
-	}()
-
-	//TODO: Hella inefficient
-	result := []*prom2json.Family{}
-	for mf := range mfChan {
-		result = append(result, prom2json.NewFamily(mf))
-	}
-
-	//pretty print
-	//jsonText, err := json.MarshalIndent(result, "", "    ")
-
-	jsonText, err := json.Marshal(result)
-	if err != nil {
-		fmt.Println(err)
-		return nil, "", 0
-	}
-
-	var metricsData []Data
-	err2 := json.Unmarshal(jsonText, &metricsData)
-	if err2 != nil {
-		fmt.Println(err2)
-		return nil, "", 0
-	}
-
-	currentTime := time.Now()
-
-	if len(metricsData) == 0 {
-		counter = counter + 1
-		currentTime = currentTime.Add(time.Second * -1 * time.Duration(counter))
-	} else {
-		counter = 0
-	}
-	return metricsData, currentTime.Format("2006.01.02 15:04:05"), counter
 }
 
 func doGreet2(c *GraphConfiguration) string {
