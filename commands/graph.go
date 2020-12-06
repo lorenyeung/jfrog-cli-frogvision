@@ -166,12 +166,20 @@ func GraphCmd(c *components.Context) error {
 	r.SetRect(52, 6, 77, 11)
 
 	g2 := widgets.NewGauge()
-	g2.Title = "Current Free Storage"
+	g2.Title = "Current Used Storage"
 	g2.SetRect(0, 12, 50, 15)
 	g2.Percent = 0
-	g2.BarColor = ui.ColorYellow
+	g2.BarColor = ui.ColorGreen
 	g2.LabelStyle = ui.NewStyle(ui.ColorBlue)
 	g2.BorderStyle.Fg = ui.ColorWhite
+
+	g3 := widgets.NewGauge()
+	g3.Title = "Current Used Heap"
+	g3.SetRect(0, 16, 50, 19)
+	g3.Percent = 0
+	g3.BarColor = ui.ColorGreen
+	g3.LabelStyle = ui.NewStyle(ui.ColorBlue)
+	g3.BorderStyle.Fg = ui.ColorWhite
 
 	ui.Render(g2, o, p, q, r)
 
@@ -189,7 +197,7 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, err = drawFunction(config, g2, o, p, q, r, offSetCounter)
+			offSetCounter, err = drawFunction(config, g2, g3, o, p, q, r, offSetCounter)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
@@ -198,11 +206,12 @@ func GraphCmd(c *components.Context) error {
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) (int, error) {
+func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) (int, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset := getMetricsData(config, offSetCounter)
 
-	var free, total *big.Float
+	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float
+	var heapProc string
 	//var freeInt, totalInt int
 	//maybe we can turn this into a hashtable for faster lookup
 	for i := range data {
@@ -211,35 +220,78 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, o *widge
 		//TODO need logic to get more than 1 if there are multiple remote - there is a bug that halts the whole thing
 		if data[i].Name == "jfrt_http_connections_max_total" {
 			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool
+			//jfrt_http_connections_available_total{max
+			//jfrt_http_connections_leased_total{max="50"
+			//jfrt_http_connections_pending_total{max="50",
 		}
 		if data[i].Name == "sys_cpu_totaltime_seconds" {
 			q.Text = data[i].Metric[0].Value
 		}
 		if data[i].Name == "app_disk_free_bytes" {
-			free, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			freeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				return 0, errorutils.CheckError(err)
 			}
 		}
 		if data[i].Name == "app_disk_total_bytes" {
-			total, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			totalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				return 0, errorutils.CheckError(err)
 			}
 		}
+		if data[i].Name == "jfrt_runtime_heap_processors_total" {
+			heapProc = data[i].Metric[0].Value
+		}
+		if data[i].Name == "jfrt_runtime_heap_freememory_bytes" {
+			heapFreeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		}
+		if data[i].Name == "jfrt_runtime_heap_maxmemory_bytes" {
+			heapMaxSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		}
+		if data[i].Name == "jfrt_runtime_heap_totalmemory_bytes" {
+			heapTotalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		}
+		// jfrt_artifacts_gc_duration_seconds {end="1595837400008",start="1595837400001",status="COMPLETED",type="TRASH_AND_BINARIES"}
+
+		// jfrt_runtime_heap_freememory_bytes  (float)
+		// jfrt_runtime_heap_maxmemory_bytes
+		// jfrt_runtime_heap_totalmemory_bytes
 
 	}
 
-	pctFreeSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(free, total))
+	//heapMax is xmx confirmed. no idea what the other two are
+	//2.07e8, 4.29e09, 1.5e09
+	//fmt.Println(heapFreeSpace, heapMaxSpace, heapTotalSpace)
 
+	//compute free space gauge
+	pctFreeSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(freeSpace, totalSpace))
 	pctFreeSpaceStr := pctFreeSpace.String()
 	pctFreeSplit := strings.Split(pctFreeSpaceStr, ".")
-	g2.Percent, _ = strconv.Atoi(pctFreeSplit[0])
-	r.Text = strconv.Itoa(len(data))
-	time.Now().Sub(responseTime)
+	pctFreeInt, _ := strconv.Atoi(pctFreeSplit[0])
+	g2.Percent = 100 - pctFreeInt
+
+	//compute free heap gauge
+	pctFreeHeapSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(heapFreeSpace, heapMaxSpace))
+	pctFreeHeapSpaceStr := pctFreeHeapSpace.String()
+	pctFreeHeapSplit := strings.Split(pctFreeHeapSpaceStr, ".")
+	pctFreeHeapInt, _ := strconv.Atoi(pctFreeHeapSplit[0])
+	g3.Percent = pctFreeHeapInt
+
+	//metrics data
+	r.Text = "Count: " + strconv.Itoa(len(data)) + "\nHeap Proc: " + heapProc + "\nHeap Total: " + heapTotalSpace.String()
+
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds)\nResponse time: " + time.Now().Sub(responseTime).String()
 
-	ui.Render(g2, o, p, q, r)
+	ui.Render(g2, g3, o, p, q, r)
 	return offset, nil
 }
 
