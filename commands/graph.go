@@ -10,7 +10,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
-	helpers "github.com/jfrog/jfrog-cli-plugin-template/utils"
+	helpers "github.com/jfrog/frogvision/utils"
 
 	"github.com/jfrog/jfrog-cli-core/utils/config"
 

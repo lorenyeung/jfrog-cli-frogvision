@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
+	helpers "github.com/jfrog/frogvision/utils"
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
-	helpers "github.com/jfrog/jfrog-cli-plugin-template/utils"
 )
 
 func GetMetricsCommand() components.Command {
