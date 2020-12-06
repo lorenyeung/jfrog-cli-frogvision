@@ -32,7 +32,7 @@ Uninstalling a plugin
     ```
 * metrics
     - Arguments:
-        - none
+        - list: list metrics
     - Flags:
         - raw: Output straight from Artifactory **[Default: false]**
         - min: Get minimum JSON from Artifactory (no whitespace) **[Default: false]**

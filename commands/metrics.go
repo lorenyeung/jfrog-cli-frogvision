@@ -1,8 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"strconv"
 
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
@@ -26,8 +27,8 @@ func GetMetricsCommand() components.Command {
 func getMetricsArguments() []components.Argument {
 	return []components.Argument{
 		{
-			Name:        "addressee",
-			Description: "The name of the person you would like to greet.",
+			Name:        "list",
+			Description: "list metrics.",
 		},
 	}
 }
@@ -41,25 +42,14 @@ func getMetricsFlags() []components.Flag {
 		},
 		components.BoolFlag{
 			Name:         "min",
-			Description:  "Get minimum JSON from Artifactory",
+			Description:  "Get minimum JSON from Artifactory (no whitespace)",
 			DefaultValue: false,
-		},
-		components.StringFlag{
-			Name:         "repeat",
-			Description:  "Greets multiple times.",
-			DefaultValue: "1",
 		},
 	}
 }
 
 func getMetricsEnvVar() []components.EnvVar {
-	return []components.EnvVar{
-		{
-			Name:        "Metrics_FROG_GREET_PREFIX",
-			Default:     "A new greet from your plugin template: ",
-			Description: "Adds a prefix to every greet.",
-		},
-	}
+	return []components.EnvVar{}
 }
 
 type MetricsConfiguration struct {
@@ -79,45 +69,62 @@ func MetricsCmd(c *components.Context) error {
 
 	var conf = new(MetricsConfiguration)
 	//conf.addressee = c.Arguments[0]
-	conf.raw = c.GetBoolFlagValue("raw")
 
-	if conf.raw {
-		metricsRaw := helpers.GetMetricsDataRaw(config)
-		fmt.Println(string(metricsRaw))
-		return nil
-	}
+	if len(c.Arguments) == 0 {
+		conf.raw = c.GetBoolFlagValue("raw")
 
-	conf.min = c.GetBoolFlagValue("min")
+		if conf.raw {
+			metricsRaw := helpers.GetMetricsDataRaw(config)
+			fmt.Println(string(metricsRaw))
+			return nil
+		}
 
-	if conf.min {
-		//return json as is, no white space
-		data, err := helpers.GetMetricsDataJSON(config, false)
+		conf.min = c.GetBoolFlagValue("min")
+
+		if conf.min {
+			//return json as is, no white space
+			data, err := helpers.GetMetricsDataJSON(config, false)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		}
+
+		//else pretty print json
+		data, err := helpers.GetMetricsDataJSON(config, true)
 		if err != nil {
 			return err
 		}
 		fmt.Println(string(data))
 		return nil
 	}
+	// probably not the right way to do it
+	if len(c.Arguments) == 1 {
+		var err error
+		switch arg := c.Arguments[0]; arg {
+		case "list":
+			jsonText, err := helpers.GetMetricsDataJSON(config, false)
+			if err != nil {
+				return err
+			}
+			var metricsData []helpers.Data
+			err2 := json.Unmarshal(jsonText, &metricsData)
+			if err2 != nil {
+				return err2
+			}
+			fmt.Println("Found", len(metricsData), "metrics")
+			for i := range metricsData {
+				fmt.Println(metricsData[i].Name)
+			}
+		case "linux":
+			fmt.Println("Linux.")
+		default:
+			err = errors.New("Unrecognized argument:" + arg)
+		}
 
-	//else pretty print json
-	data, err := helpers.GetMetricsDataJSON(config, true)
-	if err != nil {
 		return err
 	}
-	fmt.Println(string(data))
-	return nil
+	return errors.New("Wrong number of arguments. Expected: 0 or 1, " + "Received: " + strconv.Itoa(len(c.Arguments)))
 
-	repeat, err := strconv.Atoi(c.GetStringFlagValue("repeat"))
-	if err != nil {
-		return err
-	}
-	conf.repeat = repeat
-
-	conf.prefix = os.Getenv("Metrics_FROG_GREET_PREFIX")
-	if conf.prefix == "" {
-		conf.prefix = "New greeting: "
-	}
-
-	//	log.Output(doGreet(conf))
-	return nil
 }

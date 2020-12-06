@@ -21,7 +21,7 @@ import (
 func GetGraphCommand() components.Command {
 	return components.Command{
 		Name:        "graph",
-		Description: "Graph.",
+		Description: "Graph open metrics API.",
 		Aliases:     []string{"g"},
 		Arguments:   getGraphArguments(),
 		Flags:       getGraphFlags(),
@@ -33,37 +33,15 @@ func GetGraphCommand() components.Command {
 }
 
 func getGraphArguments() []components.Argument {
-	return []components.Argument{
-		{
-			Name:        "addressee",
-			Description: "The name of the person you would like to greet.",
-		},
-	}
+	return []components.Argument{}
 }
 
 func getGraphFlags() []components.Flag {
-	return []components.Flag{
-		components.BoolFlag{
-			Name:         "shout",
-			Description:  "Makes output uppercase.",
-			DefaultValue: false,
-		},
-		components.StringFlag{
-			Name:         "repeat",
-			Description:  "Greets multiple times.",
-			DefaultValue: "1",
-		},
-	}
+	return []components.Flag{}
 }
 
 func getGraphEnvVar() []components.EnvVar {
-	return []components.EnvVar{
-		{
-			Name:        "Graph_FROG_GREET_PREFIX",
-			Default:     "A new greet from your plugin template: ",
-			Description: "Adds a prefix to every greet.",
-		},
-	}
+	return []components.EnvVar{}
 }
 
 type GraphConfiguration struct {
@@ -251,18 +229,4 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widg
 
 	ui.Render(g2, g3, o, p, q, r)
 	return offset, nil
-}
-
-func doGreet2(c *GraphConfiguration) string {
-	greet := c.prefix + "Graph " + c.addressee + "!\n"
-
-	if c.shout {
-		greet = strings.ToUpper(greet)
-	}
-
-	return strings.TrimSpace(strings.Repeat(greet, c.repeat))
-}
-
-func getMetrics() string {
-	return ""
 }
