@@ -86,7 +86,7 @@ func GraphCmd(c *components.Context) error {
 
 	g2 := widgets.NewGauge()
 	g2.Title = "Current Used Storage"
-	g2.SetRect(0, 12, 50, 15)
+	g2.SetRect(0, 12, 51, 15)
 	g2.Percent = 0
 	g2.BarColor = ui.ColorGreen
 	g2.LabelStyle = ui.NewStyle(ui.ColorBlue)
@@ -94,17 +94,49 @@ func GraphCmd(c *components.Context) error {
 
 	g3 := widgets.NewGauge()
 	g3.Title = "Current Used Heap"
-	g3.SetRect(0, 16, 50, 19)
+	g3.SetRect(0, 16, 51, 19)
 	g3.Percent = 0
 	g3.BarColor = ui.ColorGreen
 	g3.LabelStyle = ui.NewStyle(ui.ColorBlue)
 	g3.BorderStyle.Fg = ui.ColorWhite
 
-	ui.Render(g2, g3, o, p, q, r)
+	//DB connections
+	g4 := widgets.NewGauge()
+	g4.Title = "Active DB connections"
+	g4.SetRect(0, 20, 51, 23)
+	g4.Percent = 0
+	g4.BarColor = ui.ColorGreen
+	g4.LabelStyle = ui.NewStyle(ui.ColorBlue)
+	g4.BorderStyle.Fg = ui.ColorWhite
+
+	//plot
+	p1 := widgets.NewPlot()
+	p1.Title = "DB Connection Chart"
+	p1.Marker = widgets.MarkerDot
+	p1.Data = [][]float64{[]float64{1, 2, 3, 4, 5}}
+	p1.SetRect(52, 12, 77, 23)
+	p1.DotMarkerRune = '+'
+	p1.AxesColor = ui.ColorWhite
+	p1.LineColors[0] = ui.ColorYellow
+	p1.DrawDirection = widgets.DrawLeft
+
+	//bar chart
+	barchartData := []float64{3, 2, 5, 3, 9, 5, 3, 2, 5, 8, 3, 2, 4, 5, 3, 2, 5, 7, 5, 3, 2, 6, 7, 4, 6, 3, 6, 7, 8, 3, 6, 4, 5, 3, 2, 4, 6, 4, 8, 5, 9, 4, 3, 6, 5, 3, 6}
+
+	bc := widgets.NewBarChart()
+	bc.Title = "DB Connections"
+	bc.BarWidth = 5
+	bc.SetRect(0, 24, 77, 34)
+	bc.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
+	bc.BarColors[0] = ui.ColorGreen
+	bc.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
+
+	ui.Render(bc, g2, g3, g4, o, p, p1, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second).C
 	offSetCounter := 0
+	tickerCount := 1
 	for {
 		select {
 		case e := <-uiEvents:
@@ -116,16 +148,17 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, err = drawFunction(config, g2, g3, o, p, q, r, offSetCounter)
+			offSetCounter, err = drawFunction(config, bc, barchartData, g2, g3, g4, o, p, p1, q, r, offSetCounter, tickerCount)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
+			tickerCount++
 
 		}
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int) (int, error) {
+func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int) (int, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false)
 	if err != nil {
@@ -134,54 +167,66 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widg
 
 	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float
 	var heapProc string
+	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMaxActive string
+	fmt.Println(dbConnIdle, dbConnMinIdle)
 	//var freeInt, totalInt int
 	//maybe we can turn this into a hashtable for faster lookup
 	for i := range data {
 
 		var err error
 		//TODO need logic to get more than 1 if there are multiple remote - there is a bug that halts the whole thing
-		if data[i].Name == "jfrt_http_connections_max_total" {
+
+		switch dataArg := data[i].Name; dataArg {
+		case "jfrt_http_connections_max_total":
 			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool
 			//jfrt_http_connections_available_total{max
 			//jfrt_http_connections_leased_total{max="50"
 			//jfrt_http_connections_pending_total{max="50",
-		}
-		if data[i].Name == "sys_cpu_totaltime_seconds" {
+
+		case "sys_cpu_totaltime_seconds":
 			q.Text = data[i].Metric[0].Value
-		}
-		if data[i].Name == "app_disk_free_bytes" {
-			freeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
-			if err != nil {
-				return 0, errorutils.CheckError(err)
-			}
-		}
-		if data[i].Name == "app_disk_total_bytes" {
-			totalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
-			if err != nil {
-				return 0, errorutils.CheckError(err)
-			}
-		}
-		if data[i].Name == "jfrt_runtime_heap_processors_total" {
-			heapProc = data[i].Metric[0].Value
-		}
-		if data[i].Name == "jfrt_runtime_heap_freememory_bytes" {
-			heapFreeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
-			if err != nil {
-				return 0, errorutils.CheckError(err)
-			}
-		}
-		if data[i].Name == "jfrt_runtime_heap_maxmemory_bytes" {
+		case "jfrt_runtime_heap_maxmemory_bytes":
 			heapMaxSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				return 0, errorutils.CheckError(err)
 			}
-		}
-		if data[i].Name == "jfrt_runtime_heap_totalmemory_bytes" {
+		case "jfrt_runtime_heap_freememory_bytes":
+			heapFreeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		case "jfrt_runtime_heap_processors_total":
+			heapProc = data[i].Metric[0].Value
+		case "app_disk_free_bytes":
+			freeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+		case "app_disk_total_bytes":
+			totalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				return 0, errorutils.CheckError(err)
+			}
+
+		case "jfrt_runtime_heap_totalmemory_bytes":
 			heapTotalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				return 0, errorutils.CheckError(err)
 			}
+		case "jfrt_db_connections_active_total":
+			dbConnActive = data[i].Metric[0].Value
+		case "jfrt_db_connections_max_active_total":
+			dbConnMaxActive = data[i].Metric[0].Value
+		case "jfrt_db_connections_min_idle_total":
+			dbConnMinIdle = data[i].Metric[0].Value
+		case "jfrt_db_connections_idle_total":
+			dbConnIdle = data[i].Metric[0].Value
+		default:
+			// freebsd, openbsd,
+			// plan9, windows...
+			//fmt.Printf("%s.\n", os)
 		}
+
 		// jfrt_runtime_heap_freememory_bytes  (float)
 		// jfrt_runtime_heap_maxmemory_bytes
 		// jfrt_runtime_heap_totalmemory_bytes
@@ -208,6 +253,26 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widg
 	//2.07e8, 4.29e09, 1.5e09
 	//fmt.Println(heapFreeSpace, heapMaxSpace, heapTotalSpace)
 
+	//compute DB active guage
+	dbConnActiveInt, err := strconv.Atoi(dbConnActive)
+	if err != nil {
+		return 0, err
+	}
+	dbConnMaxActiveInt, err := strconv.Atoi(dbConnMaxActive)
+	if err != nil {
+		return 0, err
+	}
+	dbConnIdleInt, err := strconv.Atoi(dbConnIdle)
+	if err != nil {
+		return 0, err
+	}
+	dbConnMinIdleInt, err := strconv.Atoi(dbConnMinIdle)
+	if err != nil {
+		return 0, err
+	}
+	pctDbConnActive := dbConnActiveInt / dbConnMaxActiveInt * 100
+	g4.Percent = pctDbConnActive
+
 	//compute free space gauge
 	pctFreeSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(freeSpace, totalSpace))
 	pctFreeSpaceStr := pctFreeSpace.String()
@@ -222,11 +287,13 @@ func drawFunction(config *config.ArtifactoryDetails, g2 *widgets.Gauge, g3 *widg
 	pctFreeHeapInt, _ := strconv.Atoi(pctFreeHeapSplit[0])
 	g3.Percent = pctFreeHeapInt
 
+	bc.Data = []float64{float64(dbConnActiveInt), float64(dbConnMaxActiveInt), float64(dbConnIdleInt), float64(dbConnMinIdleInt)}
+
 	//metrics data
 	r.Text = "Count: " + strconv.Itoa(len(data)) + "\nHeap Proc: " + heapProc + "\nHeap Total: " + heapTotalSpace.String()
 
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds)\nResponse time: " + time.Now().Sub(responseTime).String()
 
-	ui.Render(g2, g3, o, p, q, r)
+	ui.Render(bc, g2, g3, g4, o, p, p1, q, r)
 	return offset, nil
 }
