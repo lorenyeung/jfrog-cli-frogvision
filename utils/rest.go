@@ -28,6 +28,7 @@ import (
 )
 
 var LogRestFile = logrus.New()
+var LogFileName = "log-rest.log"
 
 //TraceData trace data struct
 type TraceData struct {

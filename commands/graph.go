@@ -70,10 +70,11 @@ func GraphCmd(c *components.Context) error {
 	}
 	defer ui.Close()
 
+	//Meta statistics
 	o := widgets.NewParagraph()
 	o.Title = "Meta statistics"
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05")
-	o.SetRect(0, 0, 77, 5)
+	o.SetRect(0, 0, 77, 6)
 
 	p := widgets.NewParagraph()
 	p.Title = "Total Remote Conns"
@@ -92,7 +93,7 @@ func GraphCmd(c *components.Context) error {
 
 	g2 := widgets.NewGauge()
 	g2.Title = "Current Used Storage"
-	g2.SetRect(0, 12, 51, 15)
+	g2.SetRect(0, 12, 36, 15)
 	g2.Percent = 0
 	g2.BarColor = ui.ColorGreen
 	g2.LabelStyle = ui.NewStyle(ui.ColorBlue)
@@ -100,7 +101,7 @@ func GraphCmd(c *components.Context) error {
 
 	g3 := widgets.NewGauge()
 	g3.Title = "Current Used Heap"
-	g3.SetRect(0, 16, 51, 19)
+	g3.SetRect(0, 16, 36, 19)
 	g3.Percent = 0
 	g3.BarColor = ui.ColorGreen
 	g3.LabelStyle = ui.NewStyle(ui.ColorBlue)
@@ -109,7 +110,7 @@ func GraphCmd(c *components.Context) error {
 	//DB connections
 	g4 := widgets.NewGauge()
 	g4.Title = "Active DB connections"
-	g4.SetRect(0, 20, 51, 23)
+	g4.SetRect(0, 20, 36, 23)
 	g4.Percent = 0
 	g4.BarColor = ui.ColorGreen
 	g4.LabelStyle = ui.NewStyle(ui.ColorBlue)
@@ -119,12 +120,30 @@ func GraphCmd(c *components.Context) error {
 	p1 := widgets.NewPlot()
 	p1.Title = "DB Connection Chart"
 	p1.Marker = widgets.MarkerDot
-	p1.Data = [][]float64{[]float64{1, 2, 3, 4, 5}}
-	p1.SetRect(52, 12, 77, 23)
+
+	var dbActivePlotData = make([]float64, 60)
+	var dbMaxPlotData = make([]float64, 60)
+	var dbIdlePlotData = make([]float64, 60)
+	var dbMinIdlePlotData = make([]float64, 60)
+	var dbConnPlotData = [][]float64{dbActivePlotData, dbMaxPlotData, dbIdlePlotData, dbMinIdlePlotData}
+
+	for i := 0; i < 60; i++ {
+		dbActivePlotData[i] = 0
+		dbMaxPlotData[i] = 100
+		dbIdlePlotData[i] = 0
+		dbMinIdlePlotData[i] = 0
+	}
+	p1.Data = dbConnPlotData
+	p1.LineColors[0] = ui.ColorGreen
+	p1.LineColors[1] = ui.ColorBlue
+	p1.SetRect(78, 0, 146, 28)
 	p1.DotMarkerRune = '+'
 	p1.AxesColor = ui.ColorWhite
 	p1.LineColors[0] = ui.ColorYellow
 	p1.DrawDirection = widgets.DrawLeft
+	//p1.MaxVal = 60
+	//p1.Min = -1
+	p1.HorizontalScale = 1
 
 	//bar chart
 	barchartData := []float64{1, 1, 1, 1}
@@ -139,7 +158,7 @@ func GraphCmd(c *components.Context) error {
 	bc.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
 
 	bc2 := widgets.NewBarChart()
-	bc2.Title = "DB Connections Barchart"
+	bc2.Title = "Remote Connections Barchart"
 	bc2.BarWidth = 5
 	bc2.Data = barchartData
 	bc2.SetRect(0, 35, 77, 45)
@@ -152,7 +171,7 @@ func GraphCmd(c *components.Context) error {
 	l.Rows = []string{}
 	l.TextStyle = ui.NewStyle(ui.ColorYellow)
 	l.WrapText = false
-	l.SetRect(37, 24, 77, 34)
+	l.SetRect(37, 12, 77, 34)
 
 	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, q, r)
 
@@ -171,7 +190,7 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, p, p1, q, r, offSetCounter, tickerCount, interval)
+			offSetCounter, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, p, p1, dbConnPlotData, q, r, offSetCounter, tickerCount, interval)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
@@ -181,26 +200,27 @@ func GraphCmd(c *components.Context) error {
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, error) {
+func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, plotData [][]float64, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false, interval)
 	if err != nil {
 		return 0, err
 
 	}
+	responseTimeCompute := time.Now()
 
-	file2, _ := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	file2, _ := os.OpenFile(helpers.LogFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	helpers.LogRestFile.Out = file2
 
 	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float = big.NewFloat(1), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100)
 	var heapProc string
-	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMaxActive string
+	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMax string
 	//fmt.Println(dbConnIdle, dbConnMinIdle)
 	//var freeInt, totalInt int
 	//maybe we can turn this into a hashtable for faster lookup
 
 	//remote connection specifc
-	remoteConnMap := make(map[string]helpers.Data)
+	var remoteConnMap []helpers.Data
 	for i := range data {
 
 		var err error
@@ -245,7 +265,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		case "jfrt_db_connections_active_total":
 			dbConnActive = data[i].Metric[0].Value
 		case "jfrt_db_connections_max_active_total":
-			dbConnMaxActive = data[i].Metric[0].Value
+			dbConnMax = data[i].Metric[0].Value
 		case "jfrt_db_connections_min_idle_total":
 			dbConnMinIdle = data[i].Metric[0].Value
 		case "jfrt_db_connections_idle_total":
@@ -260,7 +280,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		if strings.Contains(data[i].Name, "jfrt_http_connections") {
 			//helpers.LogRestFile.Info("logging metric:", data[i].Name)
 			//id := strings.Split(data[i].Name, "jfrt_http_connections")
-			remoteConnMap[data[i].Name] = data[i]
+			remoteConnMap = append(remoteConnMap, data[i])
 			helpers.LogRestFile.Info("size metric:", len(remoteConnMap))
 			//jfrt_http_connections_max_total
 			//jfrt_http_connections_available_total{max
@@ -295,10 +315,10 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		dbConnActiveInt = 0
 		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
-	dbConnMaxActiveInt, err := strconv.Atoi(dbConnMaxActive)
+	dbConnMaxInt, err := strconv.Atoi(dbConnMax)
 	if err != nil {
 		//prevent integer divide by zero error
-		dbConnMaxActiveInt = 1
+		dbConnMaxInt = 1
 		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 	dbConnIdleInt, err := strconv.Atoi(dbConnIdle)
@@ -311,7 +331,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		dbConnMinIdleInt = 0
 		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
-	pctDbConnActive := dbConnActiveInt / dbConnMaxActiveInt * 100
+	pctDbConnActive := dbConnActiveInt / dbConnMaxInt * 100
 	g4.Percent = pctDbConnActive
 
 	//compute free space gauge
@@ -321,6 +341,21 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	pctFreeInt, _ := strconv.Atoi(pctFreeSplit[0])
 	g2.Percent = 100 - pctFreeInt
 
+	//Db connection plot data
+	timeSecond := responseTime.Second()
+
+	for i := 0; i < 60; i++ {
+		if i == int(timeSecond) {
+			//order: active, max, idle, minIdle
+			plotData[0][i] = float64(dbConnActiveInt)
+			plotData[1][i] = float64(dbConnMaxInt)
+			plotData[2][i] = float64(dbConnIdleInt)
+			plotData[3][i] = float64(dbConnMinIdleInt)
+			helpers.LogRestFile.Debug("current time:", i)
+		}
+	}
+	p1.Data = plotData
+
 	//compute free heap gauge
 	pctFreeHeapSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(heapFreeSpace, heapMaxSpace))
 	pctFreeHeapSpaceStr := pctFreeHeapSpace.String()
@@ -328,7 +363,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	pctFreeHeapInt, _ := strconv.Atoi(pctFreeHeapSplit[0])
 	g3.Percent = pctFreeHeapInt
 
-	bc.Data = []float64{float64(dbConnActiveInt), float64(dbConnMaxActiveInt), float64(dbConnIdleInt), float64(dbConnMinIdleInt)}
+	bc.Data = []float64{float64(dbConnActiveInt), float64(dbConnMaxInt), float64(dbConnIdleInt), float64(dbConnMinIdleInt)}
 
 	//list data
 	connMapsize := len(remoteConnMap)
@@ -371,7 +406,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	//metrics data
 	r.Text = "Count: " + strconv.Itoa(len(data)) + "\nHeap Proc: " + heapProc + "\nHeap Total: " + heapTotalSpace.String()
 
-	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds)\nResponse time: " + time.Now().Sub(responseTime).String()
+	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds) Data Compute time:" + time.Now().Sub(responseTimeCompute).String() + "\nResponse time: " + time.Now().Sub(responseTime).String() + " Polling interval: every " + strconv.Itoa(interval) + " seconds\nServer url: " + config.Url
 
 	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, q, r)
 	return offset, nil
