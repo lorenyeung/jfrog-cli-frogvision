@@ -12,18 +12,21 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jfrog/jfrog-cli-core/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	log "github.com/sirupsen/logrus"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/prom2json"
 
+	"github.com/sirupsen/logrus"
 	logFile "github.com/sirupsen/logrus"
 )
+
+var log = logrus.New()
 
 //TraceData trace data struct
 type TraceData struct {
@@ -83,9 +86,49 @@ func GetMetricsDataRaw(config *config.ArtifactoryDetails) []byte {
 	return metrics
 }
 
+func match(s string) string {
+	i := strings.Index(s, "pool=\"")
+	if i >= 0 {
+		j := strings.Index(s, "\"}")
+		if j >= 0 {
+			return s[i+6 : j]
+		}
+	}
+	return ""
+}
+
 func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]byte, error) {
 	metrics := GetMetricsDataRaw(config)
-	//if strings.Contains(string(metrics)
+	if strings.Contains(string(metrics), "jfrt_http_connections") {
+		stringsLine := strings.Split(string(metrics), "\n")
+		counter := 0
+		repCount := 0
+		for i := range stringsLine {
+
+			//doesn't work bc of help/updated.. adds repo_<metric> here. have to re think it
+			// if strings.Contains(stringsLine[i], "#") {
+			// 	continue
+			// }
+			// matchRepo := match(stringsLine[i])
+			// if matchRepo != "" {
+			// 	stringsLine[i] = matchRepo + "_" + stringsLine[i]
+			// }
+			if strings.Contains(stringsLine[i], "jfrt_http_connections") {
+				if repCount == 16 {
+					repCount = 0
+					counter++
+				}
+				stringsLine[i] = strings.ReplaceAll(stringsLine[i], "jfrt_http_connections", "a"+strconv.Itoa(counter)+"jfrt_http_connections")
+				repCount++
+			}
+
+		}
+		metrics = []byte(strings.Join(stringsLine[:], "\n"))
+
+	}
+	file2, _ := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	log.Out = file2
+	log.Info(string(metrics))
 
 	mfChan := make(chan *dto.MetricFamily, 1024)
 
@@ -94,8 +137,8 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 
 	go func() {
 		if err := prom2json.ParseReader(strings.NewReader(file), mfChan); err != nil {
-			//fmt.Println("error reading metrics:", err)
-			//fmt.Println(file)
+			log.Warn("error reading metrics:", err)
+
 			return
 		}
 	}()
@@ -113,14 +156,14 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	if prettyPrint {
 		jsonText, err := json.MarshalIndent(result, "", "    ")
 		if err != nil {
-			return nil, err
+			return nil, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 		}
 		fmt.Println(string(jsonText))
 		return jsonText, nil
 	}
 	jsonText, err = json.Marshal(result)
 	if err != nil {
-		return nil, err
+		return nil, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 	}
 	//fmt.Println("after", time.Now())
 	return jsonText, nil
@@ -131,13 +174,14 @@ func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint 
 	//TODO check if token vs password apikey
 	jsonText, err := GetMetricsDataJSON(config, prettyPrint)
 	if err != nil {
+		//no need to show error fn here
 		return nil, "", 0, err
 	}
 
 	var metricsData []Data
-	err2 := json.Unmarshal(jsonText, &metricsData)
-	if err2 != nil {
-		return nil, "", 0, err2
+	err = json.Unmarshal(jsonText, &metricsData)
+	if err != nil {
+		return nil, "", 0, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 	}
 
 	currentTime := time.Now()
@@ -154,7 +198,7 @@ func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint 
 func GetServersIdAndDefault() ([]string, string, error) {
 	allConfigs, err := config.GetAllArtifactoryConfigs()
 	if err != nil {
-		return nil, "", err
+		return nil, "", errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 	}
 	var defaultVal string
 	var serversId []string
@@ -167,27 +211,27 @@ func GetServersIdAndDefault() ([]string, string, error) {
 	return serversId, defaultVal, nil
 }
 
-func SetLogger(logLevelVar string) {
-	level, err := log.ParseLevel(logLevelVar)
-	if err != nil {
-		level = log.InfoLevel
-	}
-	log.SetLevel(level)
+// func SetLogger(logLevelVar string) {
+// 	level, err := log.ParseLevel(logLevelVar)
+// 	if err != nil {
+// 		level = log.InfoLevel
+// 	}
+// 	log.SetLevel(level)
 
-	log.SetReportCaller(true)
-	customFormatter := new(log.TextFormatter)
-	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
-	customFormatter.QuoteEmptyFields = true
-	customFormatter.FullTimestamp = true
-	customFormatter.CallerPrettyfier = func(f *runtime.Frame) (string, string) {
-		repopath := strings.Split(f.File, "/")
-		//function := strings.Replace(f.Function, "go-pkgdl/", "", -1)
-		return fmt.Sprintf("%s\t", f.Function), fmt.Sprintf(" %s:%d\t", repopath[len(repopath)-1], f.Line)
-	}
+// 	log.SetReportCaller(true)
+// 	customFormatter := new(log.TextFormatter)
+// 	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
+// 	customFormatter.QuoteEmptyFields = true
+// 	customFormatter.FullTimestamp = true
+// 	customFormatter.CallerPrettyfier = func(f *runtime.Frame) (string, string) {
+// 		repopath := strings.Split(f.File, "/")
+// 		//function := strings.Replace(f.Function, "go-pkgdl/", "", -1)
+// 		return fmt.Sprintf("%s\t", f.Function), fmt.Sprintf(" %s:%d\t", repopath[len(repopath)-1], f.Line)
+// 	}
 
-	log.SetFormatter(customFormatter)
-	fmt.Println("Log level set at ", level)
-}
+// 	log.SetFormatter(customFormatter)
+// 	fmt.Println("Log level set at ", level)
+// }
 
 //Check logger for errors
 func Check(e error, panicCheck bool, logs string, trace TraceData) {

@@ -183,18 +183,12 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 		//TODO need logic to get more than 1 if there are multiple remote - there is a bug that halts the whole thing
 
 		switch dataArg := data[i].Name; dataArg {
-		case "jfrt_http_connections_max_total":
-			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool
-			//jfrt_http_connections_available_total{max
-			//jfrt_http_connections_leased_total{max="50"
-			//jfrt_http_connections_pending_total{max="50",
-
 		case "sys_cpu_totaltime_seconds":
 			q.Text = data[i].Metric[0].Value
 		case "jfrt_runtime_heap_maxmemory_bytes":
 			heapMaxSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
-				//prevent cannot divide by zero error for all heap/space floats
+				//prevent cannot divide by zero error for all heap/space floats to prevent remote connection crashes
 				heapMaxSpace = big.NewFloat(1)
 				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
@@ -237,7 +231,13 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 			// plan9, windows...
 			//fmt.Printf("%s.\n", os)
 		}
-
+		//repo specific connection check
+		if strings.Contains(data[i].Name, "jfrt_http_connections_max_total") {
+			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool + " " + data[i].Name
+			//jfrt_http_connections_available_total{max
+			//jfrt_http_connections_leased_total{max="50"
+			//jfrt_http_connections_pending_total{max="50",
+		}
 		// more GC metrics to consider
 		// # TYPE jfrt_artifacts_gc_duration_seconds gauge
 		// jfrt_artifacts_gc_duration_seconds{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 1.057 1607287853275

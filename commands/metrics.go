@@ -64,7 +64,7 @@ func MetricsCmd(c *components.Context) error {
 
 	config, err := helpers.GetConfig()
 	if err != nil {
-		return err
+		return errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 
 	var conf = new(MetricsConfiguration)
@@ -85,7 +85,7 @@ func MetricsCmd(c *components.Context) error {
 			//return json as is, no white space
 			data, err := helpers.GetMetricsDataJSON(config, false)
 			if err != nil {
-				return err
+				return errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 			fmt.Println(string(data))
 			return nil
@@ -94,7 +94,7 @@ func MetricsCmd(c *components.Context) error {
 		//else pretty print json
 		data, err := helpers.GetMetricsDataJSON(config, true)
 		if err != nil {
-			return err
+			return errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 		}
 		fmt.Println(string(data))
 		return nil
@@ -106,24 +106,25 @@ func MetricsCmd(c *components.Context) error {
 		case "list":
 			jsonText, err := helpers.GetMetricsDataJSON(config, false)
 			if err != nil {
-				return err
+				return errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 			var metricsData []helpers.Data
-			err2 := json.Unmarshal(jsonText, &metricsData)
-			if err2 != nil {
-				return err2
+			err = json.Unmarshal(jsonText, &metricsData)
+			if err != nil {
+				return errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 			fmt.Println("Found", len(metricsData), "metrics")
 			for i := range metricsData {
 				fmt.Println(metricsData[i].Name)
 			}
+			return nil
 		case "linux":
 			fmt.Println("Linux.")
 		default:
 			err = errors.New("Unrecognized argument:" + arg)
 		}
 
-		return err
+		return errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 	return errors.New("Wrong number of arguments. Expected: 0 or 1, " + "Received: " + strconv.Itoa(len(c.Arguments)))
 
