@@ -4,19 +4,18 @@ import (
 	"os"
 
 	"github.com/jfrog/frogvision/commands"
+	helpers "github.com/jfrog/frogvision/utils"
 	"github.com/jfrog/jfrog-cli-core/plugins"
 	"github.com/jfrog/jfrog-cli-core/plugins/components"
-	"github.com/sirupsen/logrus"
+	"github.com/prometheus/common/log"
 )
-
-var log = logrus.New()
 
 func main() {
 
-	// You could set this to any `io.Writer` such as a file
-	file, err := os.OpenFile("logrus.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	// You could set this to any `io.Writer` such as a file (declared in rest.go)
+	file, err := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err == nil {
-		log.Out = file
+		helpers.LogRestFile.Out = file
 	} else {
 		log.Info("Failed to log to file, using default stderr")
 	}

@@ -20,13 +20,14 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
 	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/log"
 	"github.com/prometheus/prom2json"
 
 	"github.com/sirupsen/logrus"
 	logFile "github.com/sirupsen/logrus"
 )
 
-var log = logrus.New()
+var LogRestFile = logrus.New()
 
 //TraceData trace data struct
 type TraceData struct {
@@ -127,8 +128,8 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 
 	}
 	file2, _ := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	log.Out = file2
-	log.Info(string(metrics))
+	LogRestFile.Out = file2
+	//log.Info(string(metrics))
 
 	mfChan := make(chan *dto.MetricFamily, 1024)
 

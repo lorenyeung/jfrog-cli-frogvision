@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"math/big"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -75,7 +76,7 @@ func GraphCmd(c *components.Context) error {
 	o.SetRect(0, 0, 77, 5)
 
 	p := widgets.NewParagraph()
-	p.Title = "Remote Connections"
+	p.Title = "Total Remote Conns"
 	p.Text = "Initializing"
 	p.SetRect(0, 6, 25, 11)
 
@@ -132,12 +133,28 @@ func GraphCmd(c *components.Context) error {
 	bc.Title = "DB Connections"
 	bc.BarWidth = 5
 	bc.Data = barchartData
-	bc.SetRect(0, 24, 77, 34)
+	bc.SetRect(0, 24, 36, 34)
 	bc.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
 	bc.BarColors[0] = ui.ColorGreen
 	bc.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
 
-	ui.Render(bc, g2, g3, g4, o, p, p1, q, r)
+	bc2 := widgets.NewBarChart()
+	bc2.Title = "DB Connections Barchart"
+	bc2.BarWidth = 5
+	bc2.Data = barchartData
+	bc2.SetRect(0, 35, 77, 45)
+	bc2.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
+	bc2.BarColors[0] = ui.ColorGreen
+	bc2.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
+
+	l := widgets.NewList()
+	l.Title = "Remote Connections List"
+	l.Rows = []string{}
+	l.TextStyle = ui.NewStyle(ui.ColorYellow)
+	l.WrapText = false
+	l.SetRect(37, 24, 77, 34)
+
+	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second * time.Duration(interval)).C
@@ -154,7 +171,7 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, err = drawFunction(config, bc, barchartData, g2, g3, g4, o, p, p1, q, r, offSetCounter, tickerCount, interval)
+			offSetCounter, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, p, p1, q, r, offSetCounter, tickerCount, interval)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
@@ -164,19 +181,26 @@ func GraphCmd(c *components.Context) error {
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, error) {
+func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false, interval)
 	if err != nil {
 		return 0, err
+
 	}
+
+	file2, _ := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	helpers.LogRestFile.Out = file2
 
 	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float = big.NewFloat(1), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100)
 	var heapProc string
 	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMaxActive string
-	fmt.Println(dbConnIdle, dbConnMinIdle)
+	//fmt.Println(dbConnIdle, dbConnMinIdle)
 	//var freeInt, totalInt int
 	//maybe we can turn this into a hashtable for faster lookup
+
+	//remote connection specifc
+	remoteConnMap := make(map[string]helpers.Data)
 	for i := range data {
 
 		var err error
@@ -232,8 +256,13 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 			//fmt.Printf("%s.\n", os)
 		}
 		//repo specific connection check
-		if strings.Contains(data[i].Name, "jfrt_http_connections_max_total") {
-			p.Text = data[i].Metric[0].Value + " " + data[i].Metric[0].Labels.Pool + " " + data[i].Name
+
+		if strings.Contains(data[i].Name, "jfrt_http_connections") {
+			//helpers.LogRestFile.Info("logging metric:", data[i].Name)
+			//id := strings.Split(data[i].Name, "jfrt_http_connections")
+			remoteConnMap[data[i].Name] = data[i]
+			helpers.LogRestFile.Info("size metric:", len(remoteConnMap))
+			//jfrt_http_connections_max_total
 			//jfrt_http_connections_available_total{max
 			//jfrt_http_connections_leased_total{max="50"
 			//jfrt_http_connections_pending_total{max="50",
@@ -301,11 +330,49 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 
 	bc.Data = []float64{float64(dbConnActiveInt), float64(dbConnMaxActiveInt), float64(dbConnIdleInt), float64(dbConnMinIdleInt)}
 
+	//list data
+	connMapsize := len(remoteConnMap)
+	var listRow = make([]string, connMapsize)
+
+	var totalLease, totalMax, totalAvailable, totalPending int
+	mapCount := 0
+	if connMapsize > 0 {
+		helpers.LogRestFile.Info("test:", remoteConnMap)
+		for i := range remoteConnMap {
+			helpers.LogRestFile.Info("test:", i)
+			listRow[mapCount] = remoteConnMap[i].Metric[0].Value + " " + remoteConnMap[i].Metric[0].Labels.Pool + " " + remoteConnMap[i].Help
+			mapCount++
+
+			totalValue, err := strconv.Atoi(remoteConnMap[i].Metric[0].Value)
+			if err != nil {
+				totalValue = 0 //safety in case it can't convert
+				helpers.LogRestFile.Warn("Failed to convert number ", remoteConnMap[i].Metric[0].Value, " at ", helpers.Trace().Fn, " line ", helpers.Trace().Line)
+			}
+
+			switch typeTotal := remoteConnMap[i].Help; typeTotal {
+			case "Leased Connections":
+				totalLease = totalLease + totalValue
+
+			case "Pending Connections":
+				totalPending = totalPending + totalValue
+
+			case "Max Connections":
+				totalMax = totalMax + totalValue
+
+			case "Available Connections":
+				totalAvailable = totalAvailable + totalValue
+			}
+		}
+	}
+	l.Rows = listRow
+
+	//total
+	p.Text = "Leased:" + strconv.Itoa(totalLease) + " Max:" + strconv.Itoa(totalMax) + " Available:" + strconv.Itoa(totalAvailable) + " Pending:" + strconv.Itoa(totalPending)
 	//metrics data
 	r.Text = "Count: " + strconv.Itoa(len(data)) + "\nHeap Proc: " + heapProc + "\nHeap Total: " + heapTotalSpace.String()
 
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds)\nResponse time: " + time.Now().Sub(responseTime).String()
 
-	ui.Render(bc, g2, g3, g4, o, p, p1, q, r)
+	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, q, r)
 	return offset, nil
 }
