@@ -37,7 +37,13 @@ func getGraphArguments() []components.Argument {
 }
 
 func getGraphFlags() []components.Flag {
-	return []components.Flag{}
+	return []components.Flag{
+		components.StringFlag{
+			Name:         "interval",
+			Description:  "Polling interval in seconds",
+			DefaultValue: "1",
+		},
+	}
 }
 
 func getGraphEnvVar() []components.EnvVar {
@@ -45,13 +51,12 @@ func getGraphEnvVar() []components.EnvVar {
 }
 
 type GraphConfiguration struct {
-	addressee string
-	shout     bool
-	repeat    int
-	prefix    string
+	interval int
 }
 
 func GraphCmd(c *components.Context) error {
+
+	interval, err := strconv.Atoi(c.GetStringFlagValue("interval"))
 
 	config, err := helpers.GetConfig()
 	if err != nil {
@@ -121,11 +126,12 @@ func GraphCmd(c *components.Context) error {
 	p1.DrawDirection = widgets.DrawLeft
 
 	//bar chart
-	barchartData := []float64{3, 2, 5, 3, 9, 5, 3, 2, 5, 8, 3, 2, 4, 5, 3, 2, 5, 7, 5, 3, 2, 6, 7, 4, 6, 3, 6, 7, 8, 3, 6, 4, 5, 3, 2, 4, 6, 4, 8, 5, 9, 4, 3, 6, 5, 3, 6}
+	barchartData := []float64{1, 1, 1, 1}
 
 	bc := widgets.NewBarChart()
 	bc.Title = "DB Connections"
 	bc.BarWidth = 5
+	bc.Data = barchartData
 	bc.SetRect(0, 24, 77, 34)
 	bc.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
 	bc.BarColors[0] = ui.ColorGreen
@@ -134,7 +140,7 @@ func GraphCmd(c *components.Context) error {
 	ui.Render(bc, g2, g3, g4, o, p, p1, q, r)
 
 	uiEvents := ui.PollEvents()
-	ticker := time.NewTicker(time.Second).C
+	ticker := time.NewTicker(time.Second * time.Duration(interval)).C
 	offSetCounter := 0
 	tickerCount := 1
 	for {
@@ -148,7 +154,7 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, err = drawFunction(config, bc, barchartData, g2, g3, g4, o, p, p1, q, r, offSetCounter, tickerCount)
+			offSetCounter, err = drawFunction(config, bc, barchartData, g2, g3, g4, o, p, p1, q, r, offSetCounter, tickerCount, interval)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
@@ -158,14 +164,14 @@ func GraphCmd(c *components.Context) error {
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int) (int, error) {
+func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, error) {
 	responseTime := time.Now()
-	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false)
+	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false, interval)
 	if err != nil {
 		return 0, err
 	}
 
-	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float
+	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float = big.NewFloat(1), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100)
 	var heapProc string
 	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMaxActive string
 	fmt.Println(dbConnIdle, dbConnMinIdle)
@@ -188,30 +194,35 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 		case "jfrt_runtime_heap_maxmemory_bytes":
 			heapMaxSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
-				return 0, errorutils.CheckError(err)
+				//prevent cannot divide by zero error for all heap/space floats
+				heapMaxSpace = big.NewFloat(1)
+				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_runtime_heap_freememory_bytes":
 			heapFreeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
-				return 0, errorutils.CheckError(err)
+				heapFreeSpace = big.NewFloat(1)
+				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+			}
+		case "jfrt_runtime_heap_totalmemory_bytes":
+			heapTotalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				heapTotalSpace = big.NewFloat(1)
+				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_runtime_heap_processors_total":
 			heapProc = data[i].Metric[0].Value
 		case "app_disk_free_bytes":
 			freeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
-				return 0, errorutils.CheckError(err)
+				freeSpace = big.NewFloat(1)
+				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "app_disk_total_bytes":
 			totalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
-				return 0, errorutils.CheckError(err)
-			}
-
-		case "jfrt_runtime_heap_totalmemory_bytes":
-			heapTotalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
-			if err != nil {
-				return 0, errorutils.CheckError(err)
+				totalSpace = big.NewFloat(1)
+				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_db_connections_active_total":
 			dbConnActive = data[i].Metric[0].Value
@@ -226,10 +237,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 			// plan9, windows...
 			//fmt.Printf("%s.\n", os)
 		}
-
-		// jfrt_runtime_heap_freememory_bytes  (float)
-		// jfrt_runtime_heap_maxmemory_bytes
-		// jfrt_runtime_heap_totalmemory_bytes
 
 		// more GC metrics to consider
 		// # TYPE jfrt_artifacts_gc_duration_seconds gauge
@@ -256,19 +263,24 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bcDat
 	//compute DB active guage
 	dbConnActiveInt, err := strconv.Atoi(dbConnActive)
 	if err != nil {
-		return 0, err
+		dbConnActiveInt = 0
+		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 	dbConnMaxActiveInt, err := strconv.Atoi(dbConnMaxActive)
 	if err != nil {
-		return 0, err
+		//prevent integer divide by zero error
+		dbConnMaxActiveInt = 1
+		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 	dbConnIdleInt, err := strconv.Atoi(dbConnIdle)
 	if err != nil {
-		return 0, err
+		dbConnIdleInt = 0
+		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 	dbConnMinIdleInt, err := strconv.Atoi(dbConnMinIdle)
 	if err != nil {
-		return 0, err
+		dbConnMinIdleInt = 0
+		//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 	}
 	pctDbConnActive := dbConnActiveInt / dbConnMaxActiveInt * 100
 	g4.Percent = pctDbConnActive

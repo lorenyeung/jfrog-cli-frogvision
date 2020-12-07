@@ -85,6 +85,7 @@ func GetMetricsDataRaw(config *config.ArtifactoryDetails) []byte {
 
 func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]byte, error) {
 	metrics := GetMetricsDataRaw(config)
+	//if strings.Contains(string(metrics)
 
 	mfChan := make(chan *dto.MetricFamily, 1024)
 
@@ -99,7 +100,8 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 		}
 	}()
 
-	//TODO: Hella inefficient
+	//TODO: Hella inefficient?
+	//fmt.Println("before", time.Now())
 	result := []*prom2json.Family{}
 	for mf := range mfChan {
 		result = append(result, prom2json.NewFamily(mf))
@@ -120,10 +122,11 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	if err != nil {
 		return nil, err
 	}
+	//fmt.Println("after", time.Now())
 	return jsonText, nil
 }
 
-func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint bool) ([]Data, string, int, error) {
+func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint bool, interval int) ([]Data, string, int, error) {
 	//log.Info("hello")
 	//TODO check if token vs password apikey
 	jsonText, err := GetMetricsDataJSON(config, prettyPrint)
@@ -140,7 +143,7 @@ func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint 
 	currentTime := time.Now()
 
 	if len(metricsData) == 0 {
-		counter = counter + 1
+		counter = counter + 1*interval
 		currentTime = currentTime.Add(time.Second * -1 * time.Duration(counter))
 	} else {
 		counter = 0
