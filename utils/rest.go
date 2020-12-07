@@ -128,9 +128,8 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 		metrics = []byte(strings.Join(stringsLine[:], "\n"))
 
 	}
-	file2, _ := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	file2, _ := os.OpenFile(LogFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	LogRestFile.Out = file2
-	//log.Info(string(metrics))
 
 	mfChan := make(chan *dto.MetricFamily, 1024)
 
@@ -139,7 +138,7 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 
 	go func() {
 		if err := prom2json.ParseReader(strings.NewReader(file), mfChan); err != nil {
-			log.Warn("error reading metrics:", err)
+			LogRestFile.Warn("error reading metrics:", err)
 
 			return
 		}
@@ -158,6 +157,7 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	if prettyPrint {
 		jsonText, err := json.MarshalIndent(result, "", "    ")
 		if err != nil {
+			LogRestFile.Error(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 			return nil, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 		}
 		fmt.Println(string(jsonText))
@@ -165,6 +165,7 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	}
 	jsonText, err = json.Marshal(result)
 	if err != nil {
+		LogRestFile.Error(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 		return nil, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
 	}
 	//fmt.Println("after", time.Now())
@@ -238,11 +239,11 @@ func GetServersIdAndDefault() ([]string, string, error) {
 //Check logger for errors
 func Check(e error, panicCheck bool, logs string, trace TraceData) {
 	if e != nil && panicCheck {
-		log.Error(logs, " failed with error:", e, " ", trace.Fn, " on line:", trace.Line)
+		LogRestFile.Error(logs, " failed with error:", e, " ", trace.Fn, " on line:", trace.Line)
 		panic(e)
 	}
 	if e != nil && !panicCheck {
-		log.Warn(logs, " failed with error:", e, " ", trace.Fn, " on line:", trace.Line)
+		LogRestFile.Warn(logs, " failed with error:", e, " ", trace.Fn, " on line:", trace.Line)
 	}
 }
 
@@ -251,7 +252,7 @@ func Trace() TraceData {
 	var trace TraceData
 	pc, file, line, ok := runtime.Caller(1)
 	if !ok {
-		log.Warn("Failed to get function data")
+		LogRestFile.Warn("Failed to get function data")
 		return trace
 	}
 
@@ -265,9 +266,12 @@ func Trace() TraceData {
 //GetRestAPI GET rest APIs response with error handling
 func GetRestAPI(method string, auth bool, urlInput, userName, apiKey, providedfilepath string, header map[string]string, retry int) ([]byte, int, http.Header) {
 	if retry > 5 {
-		log.Warn("Exceeded retry limit, cancelling further attempts")
+		LogRestFile.Warn("Exceeded retry limit, cancelling further attempts")
 		return nil, 0, nil
 	}
+
+	file2, _ := os.OpenFile(LogFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	LogRestFile.Out = file2
 
 	body := new(bytes.Buffer)
 	//PUT upload file
@@ -292,12 +296,12 @@ func GetRestAPI(method string, auth bool, urlInput, userName, apiKey, providedfi
 		req.SetBasicAuth(userName, apiKey)
 	}
 	for x, y := range header {
-		log.Debug("Recieved extra header:", x+":"+y)
+		LogRestFile.Debug("Recieved extra header:", x+":"+y)
 		req.Header.Set(x, y)
 	}
 
 	if err != nil {
-		log.Warn("The HTTP request failed with error", err)
+		LogRestFile.Warn("The HTTP request failed with error", err)
 	} else {
 
 		resp, err := client.Do(req)
@@ -309,33 +313,33 @@ func GetRestAPI(method string, auth bool, urlInput, userName, apiKey, providedfi
 		// need to account for 403s with xray, or other 403s, 429? 204 is bad too (no content for docker)
 		switch resp.StatusCode {
 		case 200:
-			log.Debug("Received ", resp.StatusCode, " OK on ", method, " request for ", urlInput, " continuing")
+			LogRestFile.Debug("Received ", resp.StatusCode, " OK on ", method, " request for ", urlInput, " continuing")
 		case 201:
 			if method == "PUT" {
-				log.Debug("Received ", resp.StatusCode, " ", method, " request for ", urlInput, " continuing")
+				LogRestFile.Debug("Received ", resp.StatusCode, " ", method, " request for ", urlInput, " continuing")
 			}
 		case 403:
-			log.Error("Received ", resp.StatusCode, " Forbidden on ", method, " request for ", urlInput, " continuing")
+			LogRestFile.Error("Received ", resp.StatusCode, " Forbidden on ", method, " request for ", urlInput, " continuing")
 			// should we try retry here? probably not
 		case 404:
-			log.Debug("Received ", resp.StatusCode, " Not Found on ", method, " request for ", urlInput, " continuing")
+			LogRestFile.Debug("Received ", resp.StatusCode, " Not Found on ", method, " request for ", urlInput, " continuing")
 		case 429:
-			log.Error("Received ", resp.StatusCode, " Too Many Requests on ", method, " request for ", urlInput, ", sleeping then retrying, attempt ", retry)
+			LogRestFile.Error("Received ", resp.StatusCode, " Too Many Requests on ", method, " request for ", urlInput, ", sleeping then retrying, attempt ", retry)
 			time.Sleep(10 * time.Second)
 			GetRestAPI(method, auth, urlInput, userName, apiKey, providedfilepath, header, retry+1)
 		case 204:
 			if method == "GET" {
-				log.Error("Received ", resp.StatusCode, " No Content on ", method, " request for ", urlInput, ", sleeping then retrying")
+				LogRestFile.Error("Received ", resp.StatusCode, " No Content on ", method, " request for ", urlInput, ", sleeping then retrying")
 				time.Sleep(10 * time.Second)
 				GetRestAPI(method, auth, urlInput, userName, apiKey, providedfilepath, header, retry+1)
 			} else {
-				log.Debug("Received ", resp.StatusCode, " OK on ", method, " request for ", urlInput, " continuing")
+				LogRestFile.Debug("Received ", resp.StatusCode, " OK on ", method, " request for ", urlInput, " continuing")
 			}
 		case 500:
-			log.Error("Received ", resp.StatusCode, " Internal Server error on ", method, " request for ", urlInput, " failing out")
+			LogRestFile.Error("Received ", resp.StatusCode, " Internal Server error on ", method, " request for ", urlInput, " failing out")
 			return nil, 0, nil
 		default:
-			log.Warn("Received ", resp.StatusCode, " on ", method, " request for ", urlInput, " continuing")
+			LogRestFile.Warn("Received ", resp.StatusCode, " on ", method, " request for ", urlInput, " continuing")
 		}
 		//Mostly for HEAD requests
 		statusCode := resp.StatusCode

@@ -93,7 +93,7 @@ func GraphCmd(c *components.Context) error {
 
 	g2 := widgets.NewGauge()
 	g2.Title = "Current Used Storage"
-	g2.SetRect(0, 12, 36, 15)
+	g2.SetRect(0, 11, 36, 14)
 	g2.Percent = 0
 	g2.BarColor = ui.ColorGreen
 	g2.LabelStyle = ui.NewStyle(ui.ColorBlue)
@@ -101,7 +101,7 @@ func GraphCmd(c *components.Context) error {
 
 	g3 := widgets.NewGauge()
 	g3.Title = "Current Used Heap"
-	g3.SetRect(0, 16, 36, 19)
+	g3.SetRect(0, 14, 36, 17)
 	g3.Percent = 0
 	g3.BarColor = ui.ColorGreen
 	g3.LabelStyle = ui.NewStyle(ui.ColorBlue)
@@ -110,13 +110,13 @@ func GraphCmd(c *components.Context) error {
 	//DB connections
 	g4 := widgets.NewGauge()
 	g4.Title = "Active DB connections"
-	g4.SetRect(0, 20, 36, 23)
+	g4.SetRect(0, 17, 36, 20)
 	g4.Percent = 0
 	g4.BarColor = ui.ColorGreen
 	g4.LabelStyle = ui.NewStyle(ui.ColorBlue)
 	g4.BorderStyle.Fg = ui.ColorWhite
 
-	//plot
+	//DB connection plot chart
 	p1 := widgets.NewPlot()
 	p1.Title = "DB Connection Chart"
 	p1.Marker = widgets.MarkerDot
@@ -129,21 +129,49 @@ func GraphCmd(c *components.Context) error {
 
 	for i := 0; i < 60; i++ {
 		dbActivePlotData[i] = 0
-		dbMaxPlotData[i] = 100
+		dbMaxPlotData[i] = 0
 		dbIdlePlotData[i] = 0
 		dbMinIdlePlotData[i] = 0
 	}
 	p1.Data = dbConnPlotData
-	p1.LineColors[0] = ui.ColorGreen
-	p1.LineColors[1] = ui.ColorBlue
 	p1.SetRect(78, 0, 146, 28)
-	p1.DotMarkerRune = '+'
+	p1.DotMarkerRune = '.'
 	p1.AxesColor = ui.ColorWhite
 	p1.LineColors[0] = ui.ColorYellow
+	p1.LineColors[1] = ui.ColorGreen
+	p1.LineColors[2] = ui.ColorBlue
+	p1.LineColors[3] = ui.ColorRed
 	p1.DrawDirection = widgets.DrawLeft
 	//p1.MaxVal = 60
 	//p1.Min = -1
 	p1.HorizontalScale = 1
+
+	//Remote connection plot chart
+	p2 := widgets.NewPlot()
+	p2.Title = "Remote Connections Chart"
+	p2.Marker = widgets.MarkerDot
+
+	var leasedPlotData = make([]float64, 60)
+	//var dbMaxPlotData = make([]float64, 60)
+	//var dbIdlePlotData = make([]float64, 60)
+	//var dbMinIdlePlotData = make([]float64, 60)
+	var connPlotData = [][]float64{leasedPlotData}
+
+	for i := 0; i < 60; i++ {
+		leasedPlotData[i] = 0
+	}
+	p2.Data = connPlotData
+	p2.SetRect(78, 28, 146, 56)
+	p2.DotMarkerRune = '.'
+	p2.AxesColor = ui.ColorWhite
+	p2.LineColors[0] = ui.ColorYellow
+	p2.LineColors[1] = ui.ColorGreen
+	p2.LineColors[2] = ui.ColorBlue
+	p2.LineColors[3] = ui.ColorRed
+	p2.DrawDirection = widgets.DrawLeft
+	//p2.MaxVal = 60
+	//p2.Min = -1
+	p2.HorizontalScale = 1
 
 	//bar chart
 	barchartData := []float64{1, 1, 1, 1}
@@ -152,28 +180,31 @@ func GraphCmd(c *components.Context) error {
 	bc.Title = "DB Connections"
 	bc.BarWidth = 5
 	bc.Data = barchartData
-	bc.SetRect(0, 24, 36, 34)
+	bc.SetRect(0, 20, 36, 34)
 	bc.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
 	bc.BarColors[0] = ui.ColorGreen
+	bc.LabelStyles[3] = ui.NewStyle(ui.ColorWhite)
 	bc.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
 
+	//remote conn barchart
 	bc2 := widgets.NewBarChart()
 	bc2.Title = "Remote Connections Barchart"
-	bc2.BarWidth = 5
-	bc2.Data = barchartData
+	bc2.BarWidth = 3
+	bc2.Data = []float64{}
 	bc2.SetRect(0, 35, 77, 45)
-	bc2.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
+	bc2.Labels = []string{}
 	bc2.BarColors[0] = ui.ColorGreen
 	bc2.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
 
+	//remote connections list
 	l := widgets.NewList()
 	l.Title = "Remote Connections List"
 	l.Rows = []string{}
 	l.TextStyle = ui.NewStyle(ui.ColorYellow)
 	l.WrapText = false
-	l.SetRect(37, 12, 77, 34)
+	l.SetRect(37, 11, 77, 34)
 
-	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, q, r)
+	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, p2, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second * time.Duration(interval)).C
@@ -271,17 +302,12 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		case "jfrt_db_connections_idle_total":
 			dbConnIdle = data[i].Metric[0].Value
 		default:
-			// freebsd, openbsd,
-			// plan9, windows...
-			//fmt.Printf("%s.\n", os)
+			// do nothing
 		}
-		//repo specific connection check
 
+		//repo specific connection check
 		if strings.Contains(data[i].Name, "jfrt_http_connections") {
-			//helpers.LogRestFile.Info("logging metric:", data[i].Name)
-			//id := strings.Split(data[i].Name, "jfrt_http_connections")
 			remoteConnMap = append(remoteConnMap, data[i])
-			helpers.LogRestFile.Info("size metric:", len(remoteConnMap))
 			//jfrt_http_connections_max_total
 			//jfrt_http_connections_available_total{max
 			//jfrt_http_connections_leased_total{max="50"
@@ -348,7 +374,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		if i == int(timeSecond) {
 			//order: active, max, idle, minIdle
 			plotData[0][i] = float64(dbConnActiveInt)
-			plotData[1][i] = float64(dbConnMaxInt)
+			plotData[1][i] = float64(0) //whats the point of plotting max
 			plotData[2][i] = float64(dbConnIdleInt)
 			plotData[3][i] = float64(dbConnMinIdleInt)
 			helpers.LogRestFile.Debug("current time:", i)
@@ -371,11 +397,13 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 	var totalLease, totalMax, totalAvailable, totalPending int
 	mapCount := 0
+	var remoteBcData = make([]float64, connMapsize)
 	if connMapsize > 0 {
-		helpers.LogRestFile.Info("test:", remoteConnMap)
+		helpers.LogRestFile.Trace("remote connection print out:", remoteConnMap)
 		for i := range remoteConnMap {
-			helpers.LogRestFile.Info("test:", i)
-			listRow[mapCount] = remoteConnMap[i].Metric[0].Value + " " + remoteConnMap[i].Metric[0].Labels.Pool + " " + remoteConnMap[i].Help
+			id := strings.Split(remoteConnMap[i].Name, "jfrt_http_connections")
+			uniqId := id[0] + string(remoteConnMap[i].Help[0])
+			listRow[mapCount] = remoteConnMap[i].Metric[0].Value + " " + remoteConnMap[i].Metric[0].Labels.Pool + " " + strings.ReplaceAll(remoteConnMap[i].Help, " Connections", "") + " " + uniqId
 			mapCount++
 
 			totalValue, err := strconv.Atoi(remoteConnMap[i].Metric[0].Value)
@@ -383,6 +411,8 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 				totalValue = 0 //safety in case it can't convert
 				helpers.LogRestFile.Warn("Failed to convert number ", remoteConnMap[i].Metric[0].Value, " at ", helpers.Trace().Fn, " line ", helpers.Trace().Line)
 			}
+
+			remoteBcData = append(remoteBcData, float64(totalValue))
 
 			switch typeTotal := remoteConnMap[i].Help; typeTotal {
 			case "Leased Connections":
@@ -399,6 +429,10 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			}
 		}
 	}
+
+	helpers.LogRestFile.Info(connMapsize)
+
+	bc2.Data = remoteBcData
 	l.Rows = listRow
 
 	//total

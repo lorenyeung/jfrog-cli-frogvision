@@ -13,7 +13,7 @@ import (
 func main() {
 
 	// You could set this to any `io.Writer` such as a file (declared in rest.go)
-	file, err := os.OpenFile("log-rest.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	file, err := os.OpenFile(helpers.LogFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err == nil {
 		helpers.LogRestFile.Out = file
 	} else {
