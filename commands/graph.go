@@ -154,7 +154,7 @@ func GraphCmd(c *components.Context) error {
 	var rcPlotData = make(map[string][]float64)
 	p2 := widgets.NewPlot()
 	p2.Title = "Remote Connections Chart"
-	p2.Marker = widgets.MarkerDot
+	//p2.Marker = widgets.MarkerDot
 
 	var leasedPlotData = make([]float64, 60)
 	var connPlotData = [][]float64{leasedPlotData}
