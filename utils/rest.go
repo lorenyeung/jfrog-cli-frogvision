@@ -172,6 +172,29 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	return jsonText, nil
 }
 
+//StringToInt64 self explanatory
+func StringToInt64(data string) int64 {
+	convert, err := strconv.ParseInt(data, 10, 64)
+	if err != nil {
+		LogRestFile.Warn(data, " is not of type integer")
+		return 0
+	}
+	return convert
+}
+
+func ByteCountDecimal(b int64) string {
+	const unit = 1000
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(b)/float64(div), "kMGTPE"[exp])
+}
+
 func GetMetricsData(config *config.ArtifactoryDetails, counter int, prettyPrint bool, interval int) ([]Data, string, int, error) {
 	//log.Info("hello")
 	//TODO check if token vs password apikey

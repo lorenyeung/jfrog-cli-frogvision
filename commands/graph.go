@@ -91,6 +91,12 @@ func GraphCmd(c *components.Context) error {
 	r.Text = "Initializing"
 	r.SetRect(52, 6, 77, 11)
 
+	//GC statistics
+	o2 := widgets.NewParagraph()
+	o2.Title = "Garbage Collection statistics"
+	o2.Text = "Initializing"
+	o2.SetRect(0, 45, 77, 51)
+
 	g2 := widgets.NewGauge()
 	g2.Title = "Current Used Storage"
 	g2.SetRect(0, 11, 36, 14)
@@ -142,20 +148,15 @@ func GraphCmd(c *components.Context) error {
 	p1.LineColors[2] = ui.ColorBlue
 	p1.LineColors[3] = ui.ColorRed
 	p1.DrawDirection = widgets.DrawLeft
-	//p1.MaxVal = 60
-	//p1.Min = -1
 	p1.HorizontalScale = 1
 
-	var rcPlotData = make(map[string][]float64)
 	//Remote connection plot chart
+	var rcPlotData = make(map[string][]float64)
 	p2 := widgets.NewPlot()
 	p2.Title = "Remote Connections Chart"
 	p2.Marker = widgets.MarkerDot
 
 	var leasedPlotData = make([]float64, 60)
-	//var dbMaxPlotData = make([]float64, 60)
-	//var dbIdlePlotData = make([]float64, 60)
-	//var dbMinIdlePlotData = make([]float64, 60)
 	var connPlotData = [][]float64{leasedPlotData}
 
 	for i := 0; i < 60; i++ {
@@ -165,13 +166,7 @@ func GraphCmd(c *components.Context) error {
 	p2.SetRect(78, 28, 146, 56)
 	p2.DotMarkerRune = '+'
 	p2.AxesColor = ui.ColorWhite
-	// p2.LineColors[0] = ui.ColorYellow
-	// p2.LineColors[1] = ui.ColorGreen
-	// p2.LineColors[2] = ui.ColorBlue
-	// p2.LineColors[3] = ui.ColorRed
 	p2.DrawDirection = widgets.DrawLeft
-	//p2.MaxVal = 60
-	//p2.Min = -1
 	p2.HorizontalScale = 1
 
 	//bar chart
@@ -192,7 +187,7 @@ func GraphCmd(c *components.Context) error {
 	bc2.Title = "Remote Connections Barchart"
 	bc2.BarWidth = 3
 	bc2.Data = []float64{}
-	bc2.SetRect(0, 35, 77, 45)
+	bc2.SetRect(0, 34, 77, 45)
 	bc2.Labels = []string{}
 	bc2.BarColors[0] = ui.ColorGreen
 	bc2.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
@@ -205,7 +200,7 @@ func GraphCmd(c *components.Context) error {
 	l.WrapText = false
 	l.SetRect(37, 11, 77, 34)
 
-	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, p2, q, r)
+	ui.Render(bc, bc2, g2, g3, g4, l, o, o2, p, p1, p2, q, r)
 
 	uiEvents := ui.PollEvents()
 	ticker := time.NewTicker(time.Second * time.Duration(interval)).C
@@ -222,7 +217,7 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, rcPlotData, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, p, p1, dbConnPlotData, p2, rcPlotData, q, r, offSetCounter, tickerCount, interval)
+			offSetCounter, rcPlotData, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, o2, p, p1, dbConnPlotData, p2, rcPlotData, q, r, offSetCounter, tickerCount, interval)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
@@ -232,7 +227,7 @@ func GraphCmd(c *components.Context) error {
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, plotData [][]float64, p2 *widgets.Plot, rcPlotData map[string][]float64, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, map[string][]float64, error) {
+func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, o2 *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, plotData [][]float64, p2 *widgets.Plot, rcPlotData map[string][]float64, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, map[string][]float64, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false, interval)
 	if err != nil {
@@ -246,18 +241,15 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 	var freeSpace, totalSpace, heapFreeSpace, heapMaxSpace, heapTotalSpace *big.Float = big.NewFloat(1), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100), big.NewFloat(100)
 	var heapProc string
-	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMax string
-	//fmt.Println(dbConnIdle, dbConnMinIdle)
-	//var freeInt, totalInt int
-	//maybe we can turn this into a hashtable for faster lookup
+	var dbConnIdle, dbConnMinIdle, dbConnActive, dbConnMax, gcBinariesTotal, gcDurationSecs, lastGcRun string
+	var gcSizeCleanedBytes, gcCurrentSizeBytes *big.Float = big.NewFloat(0), big.NewFloat(0)
 
+	//maybe we can turn this into a hashtable for faster lookup
 	//remote connection specifc
 	var remoteConnMap []helpers.Data
 	for i := range data {
 
 		var err error
-		//TODO need logic to get more than 1 if there are multiple remote - there is a bug that halts the whole thing
-
 		switch dataArg := data[i].Name; dataArg {
 		case "sys_cpu_totaltime_seconds":
 			q.Text = data[i].Metric[0].Value
@@ -266,19 +258,19 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			if err != nil {
 				//prevent cannot divide by zero error for all heap/space floats to prevent remote connection crashes
 				heapMaxSpace = big.NewFloat(1)
-				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Info(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_runtime_heap_freememory_bytes":
 			heapFreeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				heapFreeSpace = big.NewFloat(1)
-				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_runtime_heap_totalmemory_bytes":
 			heapTotalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				heapTotalSpace = big.NewFloat(1)
-				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_runtime_heap_processors_total":
 			heapProc = data[i].Metric[0].Value
@@ -286,13 +278,13 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			freeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				freeSpace = big.NewFloat(1)
-				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "app_disk_total_bytes":
 			totalSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				totalSpace = big.NewFloat(1)
-				//return 0, errors.New(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_db_connections_active_total":
 			dbConnActive = data[i].Metric[0].Value
@@ -302,9 +294,47 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			dbConnMinIdle = data[i].Metric[0].Value
 		case "jfrt_db_connections_idle_total":
 			dbConnIdle = data[i].Metric[0].Value
+		case "jfrt_artifacts_gc_duration_seconds":
+			gcDurationSecs = data[i].Metric[0].Value
+
+			gcStart, err := strconv.ParseInt(data[i].Metric[0].Labels.Start, 10, 64)
+			if err != nil {
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+			}
+			startTimeEpoch := time.Unix(gcStart/1000, 0)
+			gcEnd, err := strconv.ParseInt(data[i].Metric[0].Labels.End, 10, 64)
+			if err != nil {
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+			}
+			endTimeEpoch := time.Unix(gcEnd/1000, 0)
+
+			lastGcRun = "Last GC Run:" + startTimeEpoch.Format("2006.01.02 15:04:05") + " -> " + endTimeEpoch.Format("2006.01.02 15:04:05") + "\nType: " + data[i].Metric[0].Labels.Type + " Status: " + data[i].Metric[0].Labels.Status
+		case "jfrt_artifacts_gc_size_cleaned_bytes":
+			gcSizeCleanedBytes, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				helpers.LogRestFile.Info(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				gcSizeCleanedBytes = big.NewFloat(1)
+			}
+		case "jfrt_artifacts_gc_binaries_total":
+			gcBinariesTotal = data[i].Metric[0].Value
+		case "jfrt_artifacts_gc_current_size_bytes":
+			gcCurrentSizeBytes, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
+			if err != nil {
+				gcCurrentSizeBytes = big.NewFloat(1)
+				helpers.LogRestFile.Info(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+			}
+
 		default:
 			// do nothing
 		}
+		//gc
+		var gcSizeCleanedBytesBigInt, gcCurrentSizeBytesBigInt = new(big.Int), new(big.Int)
+		gcSizeCleanedBytesBigInt, _ = gcSizeCleanedBytes.Int(gcSizeCleanedBytesBigInt)
+		gcCurrentSizeBytesBigInt, _ = gcCurrentSizeBytes.Int(gcCurrentSizeBytesBigInt)
+		gcSizeCleanedBytesStr := gcSizeCleanedBytesBigInt.String()
+		gcCurrentSizeBytesStr := gcCurrentSizeBytesBigInt.String()
+
+		o2.Text = lastGcRun + "\nNumber of binaries cleaned: " + gcBinariesTotal + " Duration: " + gcDurationSecs + "s\nCleaned up: " + helpers.ByteCountDecimal(helpers.StringToInt64(gcSizeCleanedBytesStr)) + " Current size: " + helpers.ByteCountDecimal(helpers.StringToInt64(gcCurrentSizeBytesStr))
 
 		//repo specific connection check
 		if strings.Contains(data[i].Name, "jfrt_http_connections") {
@@ -317,14 +347,17 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		// more GC metrics to consider
 		// # TYPE jfrt_artifacts_gc_duration_seconds gauge
 		// jfrt_artifacts_gc_duration_seconds{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 1.057 1607287853275
+
 		// # HELP jfrt_artifacts_gc_size_cleaned_bytes Total Bytes recovered by Garbage Collection
 		// # UPDATED jfrt_artifacts_gc_size_cleaned_bytes 1607284811440
 		// # TYPE jfrt_artifacts_gc_size_cleaned_bytes gauge
 		// jfrt_artifacts_gc_size_cleaned_bytes{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 5.023346e+07 1607287853275
+
 		// # HELP jfrt_artifacts_gc_binaries_total Total number of binaries removed by Garbage Collection
 		// # UPDATED jfrt_artifacts_gc_binaries_total 1607284811440
 		// # TYPE jfrt_artifacts_gc_binaries_total counter
 		// jfrt_artifacts_gc_binaries_total{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 21 1607287853275
+
 		// # HELP jfrt_artifacts_gc_current_size_bytes Total space occupied by binaries after Garbage Collection
 		// # UPDATED jfrt_artifacts_gc_current_size_bytes 1607284811440
 		// # TYPE jfrt_artifacts_gc_current_size_bytes gauge
@@ -386,7 +419,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	var remoteBcData = make([]float64, connMapsize)
 	timeSecond := responseTime.Second()
 
-	helpers.LogRestFile.Info("size of map before processing", len(rcPlotData))
+	helpers.LogRestFile.Debug("size of map before processing", len(rcPlotData))
 	if connMapsize > 0 {
 		helpers.LogRestFile.Trace("remote connection print out:", remoteConnMap)
 		for i := range remoteConnMap {
@@ -481,6 +514,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds) Data Compute time:" + time.Now().Sub(responseTimeCompute).String() + "\nResponse time: " + time.Now().Sub(responseTime).String() + " Polling interval: every " + strconv.Itoa(interval) + " seconds\nServer url: " + config.Url
 
-	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, p2, q, r)
+	ui.Render(bc, bc2, g2, g3, g4, l, o, o2, p, p1, p2, q, r)
 	return offset, rcPlotData, nil
 }
