@@ -146,6 +146,7 @@ func GraphCmd(c *components.Context) error {
 	//p1.Min = -1
 	p1.HorizontalScale = 1
 
+	var rcPlotData = make(map[string][]float64)
 	//Remote connection plot chart
 	p2 := widgets.NewPlot()
 	p2.Title = "Remote Connections Chart"
@@ -162,12 +163,12 @@ func GraphCmd(c *components.Context) error {
 	}
 	p2.Data = connPlotData
 	p2.SetRect(78, 28, 146, 56)
-	p2.DotMarkerRune = '.'
+	p2.DotMarkerRune = '+'
 	p2.AxesColor = ui.ColorWhite
-	p2.LineColors[0] = ui.ColorYellow
-	p2.LineColors[1] = ui.ColorGreen
-	p2.LineColors[2] = ui.ColorBlue
-	p2.LineColors[3] = ui.ColorRed
+	// p2.LineColors[0] = ui.ColorYellow
+	// p2.LineColors[1] = ui.ColorGreen
+	// p2.LineColors[2] = ui.ColorBlue
+	// p2.LineColors[3] = ui.ColorRed
 	p2.DrawDirection = widgets.DrawLeft
 	//p2.MaxVal = 60
 	//p2.Min = -1
@@ -221,7 +222,7 @@ func GraphCmd(c *components.Context) error {
 		// use Go's built-in tickers for updating and drawing data
 		case <-ticker:
 			var err error
-			offSetCounter, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, p, p1, dbConnPlotData, q, r, offSetCounter, tickerCount, interval)
+			offSetCounter, rcPlotData, err = drawFunction(config, bc, bc2, barchartData, g2, g3, g4, l, o, p, p1, dbConnPlotData, p2, rcPlotData, q, r, offSetCounter, tickerCount, interval)
 			if err != nil {
 				return errorutils.CheckError(err)
 			}
@@ -231,11 +232,11 @@ func GraphCmd(c *components.Context) error {
 	}
 }
 
-func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, plotData [][]float64, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, error) {
+func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *widgets.BarChart, bcData []float64, g2 *widgets.Gauge, g3 *widgets.Gauge, g4 *widgets.Gauge, l *widgets.List, o *widgets.Paragraph, p *widgets.Paragraph, p1 *widgets.Plot, plotData [][]float64, p2 *widgets.Plot, rcPlotData map[string][]float64, q *widgets.Paragraph, r *widgets.Paragraph, offSetCounter int, ticker int, interval int) (int, map[string][]float64, error) {
 	responseTime := time.Now()
 	data, lastUpdate, offset, err := helpers.GetMetricsData(config, offSetCounter, false, interval)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 
 	}
 	responseTimeCompute := time.Now()
@@ -367,21 +368,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	pctFreeInt, _ := strconv.Atoi(pctFreeSplit[0])
 	g2.Percent = 100 - pctFreeInt
 
-	//Db connection plot data
-	timeSecond := responseTime.Second()
-
-	for i := 0; i < 60; i++ {
-		if i == int(timeSecond) {
-			//order: active, max, idle, minIdle
-			plotData[0][i] = float64(dbConnActiveInt)
-			plotData[1][i] = float64(0) //whats the point of plotting max
-			plotData[2][i] = float64(dbConnIdleInt)
-			plotData[3][i] = float64(dbConnMinIdleInt)
-			helpers.LogRestFile.Debug("current time:", i)
-		}
-	}
-	p1.Data = plotData
-
 	//compute free heap gauge
 	pctFreeHeapSpace := new(big.Float).Mul(big.NewFloat(100), new(big.Float).Quo(heapFreeSpace, heapMaxSpace))
 	pctFreeHeapSpaceStr := pctFreeHeapSpace.String()
@@ -394,15 +380,19 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	//list data
 	connMapsize := len(remoteConnMap)
 	var listRow = make([]string, connMapsize)
-
+	var bc2labels = make([]string, connMapsize)
 	var totalLease, totalMax, totalAvailable, totalPending int
 	mapCount := 0
 	var remoteBcData = make([]float64, connMapsize)
+	timeSecond := responseTime.Second()
+
+	helpers.LogRestFile.Info("size of map before processing", len(rcPlotData))
 	if connMapsize > 0 {
 		helpers.LogRestFile.Trace("remote connection print out:", remoteConnMap)
 		for i := range remoteConnMap {
 			id := strings.Split(remoteConnMap[i].Name, "jfrt_http_connections")
 			uniqId := id[0] + string(remoteConnMap[i].Help[0])
+			bc2labels = append(bc2labels, uniqId)
 			listRow[mapCount] = remoteConnMap[i].Metric[0].Value + " " + remoteConnMap[i].Metric[0].Labels.Pool + " " + strings.ReplaceAll(remoteConnMap[i].Help, " Connections", "") + " " + uniqId
 			mapCount++
 
@@ -410,6 +400,24 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			if err != nil {
 				totalValue = 0 //safety in case it can't convert
 				helpers.LogRestFile.Warn("Failed to convert number ", remoteConnMap[i].Metric[0].Value, " at ", helpers.Trace().Fn, " line ", helpers.Trace().Line)
+			}
+
+			//init the float for the map
+			if rcPlotData[uniqId] == nil {
+				var rcPlotDataRow = make([]float64, 60)
+				for i := 0; i < 60; i++ {
+					if i == timeSecond {
+						rcPlotDataRow[i] = float64(totalValue)
+					} else {
+						rcPlotDataRow[i] = 0
+					}
+				}
+				rcPlotData[uniqId] = rcPlotDataRow
+			} else {
+				// float row already exists, need to append/update
+				rcPlotDataRow := rcPlotData[uniqId]
+				rcPlotDataRow[timeSecond] = float64(totalValue)
+				rcPlotData[uniqId] = rcPlotDataRow
 			}
 
 			remoteBcData = append(remoteBcData, float64(totalValue))
@@ -430,10 +438,41 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		}
 	}
 
-	helpers.LogRestFile.Info(connMapsize)
+	//helpers.LogRestFile.Info(connMapsize)
 
+	bc2.Labels = bc2labels
 	bc2.Data = remoteBcData
 	l.Rows = listRow
+
+	//Db connection plot data
+	var rcPlotFinalData = make([][]float64, len(rcPlotData))
+	var rcCount int = 0
+	for i := range rcPlotData {
+		helpers.LogRestFile.Debug("rcPlot data:", rcPlotData[i])
+		helpers.LogRestFile.Debug("i:", i, " data size:", len(rcPlotData[i]))
+		if len(rcPlotData[i]) == 0 {
+			//skip
+			helpers.LogRestFile.Debug("Map is empty at this location:", i)
+		} else {
+			rcPlotFinalData[rcCount] = rcPlotData[i]
+		}
+		rcCount++
+	}
+
+	for i := 0; i < 60; i++ {
+		if i == int(timeSecond) {
+			//order: active, max, idle, minIdle
+			plotData[0][i] = float64(dbConnActiveInt)
+			plotData[1][i] = float64(0) //whats the point of plotting max
+			plotData[2][i] = float64(dbConnIdleInt)
+			plotData[3][i] = float64(dbConnMinIdleInt)
+			helpers.LogRestFile.Debug("current time:", i)
+		}
+
+	}
+	p1.Data = plotData
+	p2.DataLabels = []string{"hello"}
+	p2.Data = rcPlotFinalData
 
 	//total
 	p.Text = "Leased:" + strconv.Itoa(totalLease) + " Max:" + strconv.Itoa(totalMax) + " Available:" + strconv.Itoa(totalAvailable) + " Pending:" + strconv.Itoa(totalPending)
@@ -442,6 +481,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 	o.Text = "Current time: " + time.Now().Format("2006.01.02 15:04:05") + "\nLast updated: " + lastUpdate + " (" + strconv.Itoa(offset) + " seconds) Data Compute time:" + time.Now().Sub(responseTimeCompute).String() + "\nResponse time: " + time.Now().Sub(responseTime).String() + " Polling interval: every " + strconv.Itoa(interval) + " seconds\nServer url: " + config.Url
 
-	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, q, r)
-	return offset, nil
+	ui.Render(bc, bc2, g2, g3, g4, l, o, p, p1, p2, q, r)
+	return offset, rcPlotData, nil
 }
