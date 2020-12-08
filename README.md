@@ -3,9 +3,6 @@
 ## About this plugin
 This plugin uses the open metrics API of Artifactory to visually display information in graphical format.
 
-![](demo.gif)
-
-
 ## Installation with JFrog CLI
 ### Option 1 - current
 Since this plugin is currently not included in [JFrog CLI Plugins Registry](https://github.com/jfrog/jfrog-cli-plugins-reg), it needs to be built and installed manually. Follow these steps to install and use this plugin with JFrog CLI.
@@ -39,8 +36,8 @@ Uninstalling a plugin
     - Example:
     ```
    $ jfrog frogvision graph
-    
-    [display gif here]
+
+    ![](name-of-giphy.gif)
     ```
 * metrics
     - Arguments:
@@ -59,7 +56,7 @@ Uninstalling a plugin
   ```
 
 ### Environment variables
-* HELLO_FROG_GREET_PREFIX - Adds a prefix to every greet **[Default: New greeting: ]**
+None
 
 ## Additional info
 None.
