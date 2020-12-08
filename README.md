@@ -37,7 +37,7 @@ Uninstalling a plugin
     ```
    $ jfrog frogvision graph
     ```
-    ![](name-of-giphy.gif)
+![](name-of-giphy.gif)
     
 * metrics
     - Arguments:
