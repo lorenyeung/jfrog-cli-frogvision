@@ -130,7 +130,7 @@ func GraphCmd(c *components.Context) error {
 	//DB connection plot chart
 	p1 := widgets.NewPlot()
 	p1.Title = "DB Connection Chart"
-	p1.Marker = widgets.MarkerDot
+	//p1.Marker = widgets.MarkerDot
 
 	var dbActivePlotData = make([]float64, 60)
 	var dbMaxPlotData = make([]float64, 60)
@@ -366,16 +366,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		remoteConnMap = append(remoteConnMap, somedata)
 	}
 
-	// a0avail{}
-	// a0lease{}
-	// a0max{}
-	// a0pending{}
-
-	// for i := range remoteConnMap {
-	// 	helpers.LogRestFile.Info("order:", remoteConnMap[i].Name)
-	// 	helpers.LogRestFile.Info("order map:", remoteConnMapIds[i])
-	// }
-
 	//heapMax is xmx confirmed. no idea what the other two are
 	//2.07e8, 4.29e09, 1.5e09
 	//fmt.Println(heapFreeSpace, heapMaxSpace, heapTotalSpace)
@@ -427,7 +417,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	var bc2labels = make([]string, connMapsize)
 	var totalLease, totalMax, totalAvailable, totalPending int
 	mapCount := 0
-	var remoteBcData = make([]float64, connMapsize)
+	var remoteBcData []float64
 	timeSecond := responseTime.Second()
 
 	helpers.LogRestFile.Debug("size of map before processing", len(rcPlotData))
@@ -446,24 +436,27 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 				helpers.LogRestFile.Warn("Failed to convert number ", remoteConnMap[i].Metric[0].Value, " at ", helpers.Trace().Fn, " line ", helpers.Trace().Line)
 			}
 
-			//init the float for the map
-			if rcPlotData[uniqId] == nil {
-				var rcPlotDataRow = make([]float64, 60)
-				for i := 0; i < 60; i++ {
-					if i == timeSecond {
-						rcPlotDataRow[i] = float64(totalValue)
-					} else {
-						rcPlotDataRow[i] = 0
+			//init the float for the map for plot
+			if strings.Contains(remoteConnMap[i].Name, "jfrt_http_connections_leased_total") {
+				if rcPlotData[uniqId] == nil {
+					var rcPlotDataRow = make([]float64, 60)
+					for i := 0; i < 60; i++ {
+						if i == timeSecond {
+							rcPlotDataRow[i] = float64(totalValue)
+						} else {
+							rcPlotDataRow[i] = 0
+						}
 					}
+					rcPlotData[uniqId] = rcPlotDataRow
+				} else {
+					// float row already exists, need to append/update
+					rcPlotDataRow := rcPlotData[uniqId]
+					rcPlotDataRow[timeSecond] = float64(totalValue)
+					rcPlotData[uniqId] = rcPlotDataRow
 				}
-				rcPlotData[uniqId] = rcPlotDataRow
-			} else {
-				// float row already exists, need to append/update
-				rcPlotDataRow := rcPlotData[uniqId]
-				rcPlotDataRow[timeSecond] = float64(totalValue)
-				rcPlotData[uniqId] = rcPlotDataRow
 			}
 
+			//append bar chart
 			remoteBcData = append(remoteBcData, float64(totalValue))
 
 			switch typeTotal := remoteConnMap[i].Help; typeTotal {
@@ -498,7 +491,9 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			//skip
 			helpers.LogRestFile.Debug("Map is empty at this location:", i)
 		} else {
+
 			rcPlotFinalData[rcCount] = rcPlotData[i]
+
 		}
 		rcCount++
 	}

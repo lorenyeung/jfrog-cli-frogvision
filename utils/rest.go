@@ -29,6 +29,7 @@ import (
 
 //LogRestFile log instantiation
 var LogRestFile = logrus.New()
+
 //LogFileName log file name
 var LogFileName = "log-rest.log"
 
@@ -86,14 +87,14 @@ func GetConfig() (*config.ArtifactoryDetails, error) {
 	return config, nil
 }
 
-func GetMetricsDataRaw(config *config.ArtifactoryDetails) ([]byte, error) {
+func GetMetricsDataRaw(config *config.ArtifactoryDetails) []byte {
 	metrics, respCode, _ := GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
 	if respCode != 200 {
-		LogRestFile.Error("Received ",respCode," while getting metrics")
-		return nil, errors.New("Received "+string(respCode)+" while getting metrics")
+		LogRestFile.Error("Received ", respCode, " while getting metrics")
+		//return nil, errors.New("Received " + strconv.Itoa(respCode) + " HTTP code while getting metrics")
 	}
-	LogRestFile.Debug("Received ",respCode," while getting metrics")
-	return metrics, nil
+	LogRestFile.Debug("Received ", respCode, " while getting metrics")
+	return metrics
 }
 
 func match(s string) string {
@@ -108,10 +109,7 @@ func match(s string) string {
 }
 
 func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]byte, error) {
-	metrics, err := GetMetricsDataRaw(config)
-	if err != nil {
-		return nil, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
-	}
+	metrics := GetMetricsDataRaw(config)
 	if strings.Contains(string(metrics), "jfrt_http_connections") {
 		stringsLine := strings.Split(string(metrics), "\n")
 		counter := 0
@@ -163,6 +161,7 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	}
 
 	var jsonText []byte
+	var err error
 	//pretty print
 	if prettyPrint {
 		jsonText, err := json.MarshalIndent(result, "", "    ")

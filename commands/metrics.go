@@ -74,9 +74,9 @@ func MetricsCmd(c *components.Context) error {
 		conf.raw = c.GetBoolFlagValue("raw")
 
 		if conf.raw {
-			metricsRaw, err := helpers.GetMetricsDataRaw(config)
-			if err != nil {
-				return err
+			metricsRaw := helpers.GetMetricsDataRaw(config)
+			if len(metricsRaw) == 0 {
+				return errors.New("Received invalid metric data")
 			}
 			fmt.Println(string(metricsRaw))
 			return nil
