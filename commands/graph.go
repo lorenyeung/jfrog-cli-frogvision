@@ -474,7 +474,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 								rcPlotDataRow[i] = 0
 							}
 							rcPlotData[uniqId] = rcPlotDataRow
-							helpers.LogRestFile.Info("RESET YOU BITCH ELSE")
+							helpers.LogRestFile.Info("reset graph")
 						}
 					}
 					rcPlotData[uniqId] = rcPlotDataRow
