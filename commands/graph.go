@@ -148,7 +148,7 @@ func GraphCmd(c *components.Context) error {
 	p1.SetRect(78, 0, 146, 28)
 	p1.DotMarkerRune = '.'
 	p1.AxesColor = ui.ColorWhite
-	p1.LineColors[0] = ui.ColorYellow
+	p1.LineColors[0] = ui.ColorBlack
 	p1.LineColors[1] = ui.ColorGreen
 	p1.LineColors[2] = ui.ColorBlue
 	p1.LineColors[3] = ui.ColorRed
@@ -183,7 +183,13 @@ func GraphCmd(c *components.Context) error {
 	bc.Data = barchartData
 	bc.SetRect(0, 20, 36, 34)
 	bc.Labels = []string{"Active", "Max", "Idle", "MinIdle"}
-	bc.BarColors[0] = ui.ColorGreen
+	bc.BarColors[0] = ui.ColorBlack
+	bc.BarColors[1] = ui.ColorGreen
+	bc.BarColors[2] = ui.ColorBlue
+	bc.BarColors[3] = ui.ColorRed
+	bc.LabelStyles[0] = ui.NewStyle(ui.ColorWhite)
+	bc.LabelStyles[1] = ui.NewStyle(ui.ColorWhite)
+	bc.LabelStyles[2] = ui.NewStyle(ui.ColorWhite)
 	bc.LabelStyles[3] = ui.NewStyle(ui.ColorWhite)
 	bc.NumStyles[0] = ui.NewStyle(ui.ColorBlack)
 
@@ -211,6 +217,22 @@ func GraphCmd(c *components.Context) error {
 	ticker := time.NewTicker(time.Second * time.Duration(interval)).C
 	offSetCounter := 0
 	tickerCount := 1
+
+	go func() {
+		for {
+			if time.Now().Second() == 0 {
+				for i := range rcPlotData {
+					rcPlotData[i] = make([]float64, 60)
+				}
+				for i := range dbConnPlotData {
+					dbConnPlotData[i] = make([]float64, 60)
+				}
+				helpers.LogRestFile.Info("reset graphs")
+			}
+			time.Sleep(time.Second * time.Duration(1))
+		}
+	}()
+
 	for {
 		select {
 		case e := <-uiEvents:
@@ -254,9 +276,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	var remoteConnMap []helpers.Data
 
 	var remoteConnMap2 = make(map[string]helpers.Data)
-	//TODO NEED TO DYNAMICALLY RE ALLOCATE AS NEEDED
-	helpers.LogRestFile.Info("len raw data:", len(data))
-
 	var remoteConnMapIds = []string{}
 
 	for i := range data {
@@ -270,7 +289,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			if err != nil {
 				//prevent cannot divide by zero error for all heap/space floats to prevent remote connection crashes
 				heapMaxSpace = big.NewFloat(1)
-				helpers.LogRestFile.Info(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 		case "jfrt_runtime_heap_freememory_bytes":
 			heapFreeSpace, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
@@ -324,7 +343,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		case "jfrt_artifacts_gc_size_cleaned_bytes":
 			gcSizeCleanedBytes, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
-				helpers.LogRestFile.Info(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 				gcSizeCleanedBytes = big.NewFloat(1)
 			}
 		case "jfrt_artifacts_gc_binaries_total":
@@ -333,7 +352,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			gcCurrentSizeBytes, _, err = big.ParseFloat(data[i].Metric[0].Value, 10, 0, big.ToNearestEven)
 			if err != nil {
 				gcCurrentSizeBytes = big.NewFloat(1)
-				helpers.LogRestFile.Info(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
+				helpers.LogRestFile.Error(err.Error() + " at " + string(helpers.Trace().Fn) + " on line " + string(helpers.Trace().Line))
 			}
 
 		default:
@@ -350,17 +369,12 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 		//repo specific connection check
 		if strings.Contains(data[i].Name, "jfrt_http_connections") {
-			//remoteConnMap = append(remoteConnMap, data[i])
 			remoteConnMap2[data[i].Name] = data[i]
-			helpers.LogRestFile.Info(remoteConnMapIds, len(remoteConnMapIds))
 			remoteConnMapIds = append(remoteConnMapIds, data[i].Name)
 		}
 	}
 
 	sort.Sort(Alphabetic(remoteConnMapIds))
-
-	helpers.LogRestFile.Info("order map:", remoteConnMapIds)
-
 	for i := range remoteConnMapIds {
 		somedata := remoteConnMap2[remoteConnMapIds[i]]
 		remoteConnMap = append(remoteConnMap, somedata)
@@ -414,7 +428,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	//list data
 	connMapsize := len(remoteConnMap)
 	var listRow = make([]string, connMapsize)
-	var bc2labels = make([]string, connMapsize)
+	var bc2labels []string
 	var totalLease, totalMax, totalAvailable, totalPending int
 	mapCount := 0
 	var remoteBcData []float64
@@ -452,6 +466,17 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 					// float row already exists, need to append/update
 					rcPlotDataRow := rcPlotData[uniqId]
 					rcPlotDataRow[timeSecond] = float64(totalValue)
+					for i := 0; i < interval; i++ {
+						if timeSecond+i < 60 {
+							rcPlotDataRow[timeSecond+i] = float64(totalValue)
+						} else {
+							for i := range rcPlotDataRow {
+								rcPlotDataRow[i] = 0
+							}
+							rcPlotData[uniqId] = rcPlotDataRow
+							helpers.LogRestFile.Info("RESET YOU BITCH ELSE")
+						}
+					}
 					rcPlotData[uniqId] = rcPlotDataRow
 				}
 			}
@@ -474,8 +499,6 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			}
 		}
 	}
-
-	//helpers.LogRestFile.Info(connMapsize)
 
 	bc2.Labels = bc2labels
 	bc2.Data = remoteBcData
@@ -509,9 +532,21 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 			helpers.LogRestFile.Debug("current time:", i)
 		}
 
+		for i := 0; i < interval; i++ {
+			if timeSecond+i < 60 {
+				//order: active, max, idle, minIdle
+				plotData[0][timeSecond+i] = float64(dbConnActiveInt)
+				plotData[1][timeSecond+i] = float64(0) //whats the point of plotting max
+				plotData[2][timeSecond+i] = float64(dbConnIdleInt)
+				plotData[3][timeSecond+i] = float64(dbConnMinIdleInt)
+				helpers.LogRestFile.Debug("current time:", i)
+			}
+		}
 	}
 	p1.Data = plotData
 	p2.DataLabels = []string{"hello"}
+
+	helpers.LogRestFile.Info("size of plot rc:", len(rcPlotFinalData))
 	p2.Data = rcPlotFinalData
 
 	//total
