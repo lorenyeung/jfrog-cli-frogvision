@@ -32,7 +32,7 @@ Uninstalling a plugin
     - Arguments:
         - none
     - Flags:
-        - none
+        - interval: Polling interval in seconds **[Default: 1]**
     - Example:
     ```
    $ jfrog frogvision graph

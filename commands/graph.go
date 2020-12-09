@@ -546,7 +546,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	p1.Data = plotData
 	p2.DataLabels = []string{"hello"}
 
-	helpers.LogRestFile.Info("size of plot rc:", len(rcPlotFinalData))
+	helpers.LogRestFile.Debug("size of plot rc:", len(rcPlotFinalData))
 	p2.Data = rcPlotFinalData
 
 	//total
