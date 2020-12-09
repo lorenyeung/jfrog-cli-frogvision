@@ -27,7 +27,9 @@ import (
 	logFile "github.com/sirupsen/logrus"
 )
 
+//LogRestFile log instantiation
 var LogRestFile = logrus.New()
+//LogFileName log file name
 var LogFileName = "log-rest.log"
 
 //TraceData trace data struct
@@ -62,9 +64,10 @@ type LabelsStruct struct {
 	Pool   string `json:"pool"`
 }
 
+//GetConfig get config from cli
 func GetConfig() (*config.ArtifactoryDetails, error) {
 	//TODO handle custom server id input
-	serversIds, serverIdDefault, _ := GetServersIdAndDefault()
+	serversIds, serverIDDefault, _ := GetServersIdAndDefault()
 	if len(serversIds) == 0 {
 		return nil, errorutils.CheckError(errors.New("no Artifactory servers configured. Use the 'jfrog rt c' command to set the Artifactory server details"))
 	}
@@ -72,7 +75,7 @@ func GetConfig() (*config.ArtifactoryDetails, error) {
 	//TODO handle if user is not admin
 
 	//fmt.Print(serversIds, serverIdDefault)
-	config, _ := config.GetArtifactorySpecificConfig(serverIdDefault, true, false)
+	config, _ := config.GetArtifactorySpecificConfig(serverIDDefault, true, false)
 
 	ping, _, _ := GetRestAPI("GET", true, config.Url+"api/system/ping", config.User, config.Password, "", nil, 1)
 	if string(ping) != "OK" {
@@ -83,9 +86,14 @@ func GetConfig() (*config.ArtifactoryDetails, error) {
 	return config, nil
 }
 
-func GetMetricsDataRaw(config *config.ArtifactoryDetails) []byte {
-	metrics, _, _ := GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
-	return metrics
+func GetMetricsDataRaw(config *config.ArtifactoryDetails) ([]byte, error) {
+	metrics, respCode, _ := GetRestAPI("GET", true, config.Url+"api/v1/metrics", config.User, config.Password, "", nil, 1)
+	if respCode != 200 {
+		LogRestFile.Error("Received ",respCode," while getting metrics")
+		return nil, errors.New("Received "+string(respCode)+" while getting metrics")
+	}
+	LogRestFile.Debug("Received ",respCode," while getting metrics")
+	return metrics, nil
 }
 
 func match(s string) string {
@@ -100,7 +108,10 @@ func match(s string) string {
 }
 
 func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]byte, error) {
-	metrics := GetMetricsDataRaw(config)
+	metrics, err := GetMetricsDataRaw(config)
+	if err != nil {
+		return nil, errors.New(err.Error() + " at " + string(Trace().Fn) + " on line " + string(Trace().Line))
+	}
 	if strings.Contains(string(metrics), "jfrt_http_connections") {
 		stringsLine := strings.Split(string(metrics), "\n")
 		counter := 0
@@ -152,7 +163,6 @@ func GetMetricsDataJSON(config *config.ArtifactoryDetails, prettyPrint bool) ([]
 	}
 
 	var jsonText []byte
-	var err error
 	//pretty print
 	if prettyPrint {
 		jsonText, err := json.MarshalIndent(result, "", "    ")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,10 @@ import (
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 )
+
+type Alphabetic []string
+
+func (list Alphabetic) Len() int { return len(list) }
 
 func GetGraphCommand() components.Command {
 	return components.Command{
@@ -247,6 +252,13 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	//maybe we can turn this into a hashtable for faster lookup
 	//remote connection specifc
 	var remoteConnMap []helpers.Data
+
+	var remoteConnMap2 = make(map[string]helpers.Data)
+	//TODO NEED TO DYNAMICALLY RE ALLOCATE AS NEEDED
+	helpers.LogRestFile.Info("len raw data:", len(data))
+
+	var remoteConnMapIds = []string{}
+
 	for i := range data {
 
 		var err error
@@ -338,32 +350,31 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 		//repo specific connection check
 		if strings.Contains(data[i].Name, "jfrt_http_connections") {
-			remoteConnMap = append(remoteConnMap, data[i])
-			//jfrt_http_connections_max_total
-			//jfrt_http_connections_available_total{max
-			//jfrt_http_connections_leased_total{max="50"
-			//jfrt_http_connections_pending_total{max="50",
+			//remoteConnMap = append(remoteConnMap, data[i])
+			remoteConnMap2[data[i].Name] = data[i]
+			helpers.LogRestFile.Info(remoteConnMapIds, len(remoteConnMapIds))
+			remoteConnMapIds = append(remoteConnMapIds, data[i].Name)
 		}
-		// more GC metrics to consider
-		// # TYPE jfrt_artifacts_gc_duration_seconds gauge
-		// jfrt_artifacts_gc_duration_seconds{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 1.057 1607287853275
-
-		// # HELP jfrt_artifacts_gc_size_cleaned_bytes Total Bytes recovered by Garbage Collection
-		// # UPDATED jfrt_artifacts_gc_size_cleaned_bytes 1607284811440
-		// # TYPE jfrt_artifacts_gc_size_cleaned_bytes gauge
-		// jfrt_artifacts_gc_size_cleaned_bytes{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 5.023346e+07 1607287853275
-
-		// # HELP jfrt_artifacts_gc_binaries_total Total number of binaries removed by Garbage Collection
-		// # UPDATED jfrt_artifacts_gc_binaries_total 1607284811440
-		// # TYPE jfrt_artifacts_gc_binaries_total counter
-		// jfrt_artifacts_gc_binaries_total{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 21 1607287853275
-
-		// # HELP jfrt_artifacts_gc_current_size_bytes Total space occupied by binaries after Garbage Collection
-		// # UPDATED jfrt_artifacts_gc_current_size_bytes 1607284811440
-		// # TYPE jfrt_artifacts_gc_current_size_bytes gauge
-		// jfrt_artifacts_gc_current_size_bytes{end="1607284801199",start="1607284800142",status="COMPLETED",type="FULL"} 3.823509e+10 1607287853275
-
 	}
+
+	sort.Sort(Alphabetic(remoteConnMapIds))
+
+	helpers.LogRestFile.Info("order map:", remoteConnMapIds)
+
+	for i := range remoteConnMapIds {
+		somedata := remoteConnMap2[remoteConnMapIds[i]]
+		remoteConnMap = append(remoteConnMap, somedata)
+	}
+
+	// a0avail{}
+	// a0lease{}
+	// a0max{}
+	// a0pending{}
+
+	// for i := range remoteConnMap {
+	// 	helpers.LogRestFile.Info("order:", remoteConnMap[i].Name)
+	// 	helpers.LogRestFile.Info("order map:", remoteConnMapIds[i])
+	// }
 
 	//heapMax is xmx confirmed. no idea what the other two are
 	//2.07e8, 4.29e09, 1.5e09
@@ -477,7 +488,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 	bc2.Data = remoteBcData
 	l.Rows = listRow
 
-	//Db connection plot data
+	//remote connection data
 	var rcPlotFinalData = make([][]float64, len(rcPlotData))
 	var rcCount int = 0
 	for i := range rcPlotData {
@@ -492,6 +503,7 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 		rcCount++
 	}
 
+	//Db connection plot data
 	for i := 0; i < 60; i++ {
 		if i == int(timeSecond) {
 			//order: active, max, idle, minIdle
@@ -516,4 +528,24 @@ func drawFunction(config *config.ArtifactoryDetails, bc *widgets.BarChart, bc2 *
 
 	ui.Render(bc, bc2, g2, g3, g4, l, o, o2, p, p1, p2, q, r)
 	return offset, rcPlotData, nil
+}
+
+func Extend(slice []string, element string) []string {
+	n := len(slice)
+	slice = slice[0 : n+1]
+	slice[n] = element
+	return slice
+}
+
+func (list Alphabetic) Swap(i, j int) { list[i], list[j] = list[j], list[i] }
+
+func (list Alphabetic) Less(i, j int) bool {
+	var si string = list[i]
+	var sj string = list[j]
+	var si_lower = strings.ToLower(si)
+	var sj_lower = strings.ToLower(sj)
+	if si_lower == sj_lower {
+		return si < sj
+	}
+	return si_lower < sj_lower
 }

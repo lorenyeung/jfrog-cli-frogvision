@@ -74,7 +74,10 @@ func MetricsCmd(c *components.Context) error {
 		conf.raw = c.GetBoolFlagValue("raw")
 
 		if conf.raw {
-			metricsRaw := helpers.GetMetricsDataRaw(config)
+			metricsRaw, err := helpers.GetMetricsDataRaw(config)
+			if err != nil {
+				return err
+			}
 			fmt.Println(string(metricsRaw))
 			return nil
 		}
